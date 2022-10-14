@@ -87,12 +87,13 @@
 */
 
 #include "EV3_Localization.h"
+#include <time.h>
 char COLOUR_INPUT = PORT_1;
 char BACK_TOUCH_INPUT = PORT_3;
 char TOP_TOUCH_INPUT = PORT_4;
-char RIGHT_WHEEL_OUTPUT = PORT_A;
-char LEFT_WHEEL_OUTPUT = PORT_D;
-char SENSOR_WHEEL_OUTPUT = PORT_B;
+char RIGHT_WHEEL_OUTPUT = MOTOR_A;
+char LEFT_WHEEL_OUTPUT = MOTOR_D;
+char SENSOR_WHEEL_OUTPUT = MOTOR_B;
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -226,10 +227,98 @@ int main(int argc, char *argv[])
  exit(0);
 }
 
+#define COLOUR_BLACK 0
+#define COLOUR_YELLOW 1
+#define COLOUR_WHITE 2
+#define COLOUR_GREEN 3
+#define COLOUR_BLUE 4
+#define COLOUR_RED 5
+#define COLOUR_UNKNOWN 6
+int colourFromRGB(int RGB[3]){
+  if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
+  if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
+  if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
+  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
+  if (RGB[0] < 50 && RGB[1] > 50 && RGB[2] < 50) COLOUR_GREEN;
+  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
+  if (RGB[2] > 75) return COLOUR_BLUE;
+  return COLOUR_UNKNOWN;
+}
+
+#define SENSOR_WHEEL_POWER 50
+#define whiteMax 305.0
+int getColourFromSensor(){
+  int RGB[3];
+  BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
+  for (int i = 0; i < 3; i++){
+    RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
+  }
+  
+  int colour = colourFromRGB(RGB);
+  if (colour == COLOUR_UNKNOWN){
+    printf("Colour reading was invalid");
+    fflush(stdout);
+  }
+  return colour;
+}
+
+int read_touch_robust(int port) {
+  for (int i = 0; i < 3; i++) { // Too many bluetooth calls slows down tha program
+    if (BT_read_touch_sensor(port) == 0) return 0;
+  }
+  return 1;
+}
+
+int *shift_color_sensor(int shift_mode) {
+  // shift_mode 1: Extended, 0: Retracted
+  printf("Shifting robot color sensor");
+  fflush(stdout);
+  int *samples = (int*)calloc(100, sizeof(int));
+  int i = 0;
+  int flag = 0; // Result of last touch sensor read
+  int touch_port = shift_mode == 0 ? BACK_TOUCH_INPUT : TOP_TOUCH_INPUT;
+  int power_direction = shift_mode == 0 ? 1 : -1;
+  while (flag == 0) {
+    BT_motor_port_stop(SENSOR_WHEEL_OUTPUT, 1);
+    samples[i] = getColourFromSensor();
+    flag = read_touch_robust(touch_port);
+    i++;
+    BT_motor_port_start(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * power_direction);
+    usleep(1000*100);
+  }
+
+  samples[i] = -1; // Termination Value
+
+  BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * -power_direction, 100);
+
+  printf("Finished shifting robot colour sensor");
+  fflush(stdout);
+  return samples;
+}
+
 void allign_robot(void){
   // Extends the colour sensor and rotates until the extended sensor is on black
-  ShiftColourSensor(1);
+  printf("Alligning robot");
+  fflush(stdout);
+  shift_color_sensor(1);
+  int i = 1;
+  int dir = 1;
+  while (getColourFromSensor() != COLOUR_BLACK && getColourFromSensor() != COLOUR_YELLOW ){
+    // TODO also check if the colour is black/yellow throughout
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * 3);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -3);
+    for (int a = 0; a < i; a++){
+      usleep(1000 * 10);
+    }
+    BT_all_stop(0);
+    i *=2;
+    dir *=-1;
+  }
 
+  // Retract sensor before returning
+  shift_color_sensor(0);
+  printf("Finished alligning robot");
+  fflush(stdout);
 }
 
 int find_street(void)   
@@ -243,16 +332,20 @@ int find_street(void)
   */   
  
   // Retract colour sensor, go backwards until we reach black
-  ShiftColourSensor(0);
-  while (getColourFromSensor() != COLOUR_BLACK){
-      BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -5);
-      BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -5);
-  }
+  printf("Looking for road");
+  fflush(stdout);
+
+  shift_color_sensor(0);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -5);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -5);
+  while (getColourFromSensor() != COLOUR_BLACK){}
   BT_all_stop(0);
   
   // Allign robot then return
   allign_robot();
 
+  printf("Finished finding road");
+  fflush(stdout);
   return(0);
 }
 
@@ -269,7 +362,32 @@ int drive_along_street(void)
   * You can use the return value to indicate success or failure, or to inform the rest of your code of the state of your
   * bot after calling this function.
   */   
-  return(0);
+
+  // Goes to nearest street and lines up
+  find_street();
+  printf("Driving on road");
+  fflush(stdout);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT, 5);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, 5);
+  while (1){
+    int col = getColourFromSensor();
+    if (col == COLOUR_BLACK || col == COLOUR_UNKNOWN) continue;
+    
+    // we're on something else, stop and figure it out
+    BT_all_stop(0);
+    printf("Found something other than black/unknown");
+    fflush(stdout);
+
+    if (col == COLOUR_YELLOW) return 1; // we have reached an intersection
+    if (col == COLOUR_RED) return 2; // we have reached an edge
+
+    // we went out of bounds, fix up then go back on road
+    find_street(); 
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, 5);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, 5);
+  }
+
+  return 0; // something is wrong
 }
 
 int scan_intersection(int *tl, int *tr, int *br, int *bl)
@@ -302,6 +420,12 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
 
+  // Temp, just testing movement
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  5);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   5);
+  while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
+  BT_all_stop(0);
+
  // Return invalid colour values, and a zero to indicate failure (you will replace this with your code)
  *(tl)=-1;
  *(tr)=-1;
@@ -325,45 +449,6 @@ int turn_at_intersection(int turn_direction)
   * You can use the return value to indicate success or failure, or to inform your code of the state of the bot
   */
   return(0);
-}
-
-int[] ShiftColourSensor(int mode){
-  return 0;
-}
-
-double whiteMax = 305.0;
-int getColourFromSensor(){
-  int[3] RGB;
-  BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
-  for (int i = 0; i < 3; i++){
-    RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
-  }
-  
-  int colour = colourFromRGB(RGB);
-  if (colour == COLOUR_UNKNOWN){
-    printf("Colour reading was invalid, trying again");
-    fflush(stdout);
-    return getColourFromSensor();
-  }
-  return colour;
-}
-
-#define COLOUR_BLACK 0;
-#define COLOUR_YELLOW 1;
-#define COLOUR_WHITE 2;
-#define COLOUR_GREEN 3;
-#define COLOUR_BLUE 4;
-#define COLOUR_RED 5;
-#define COLOUR_UNKNOWN 6;
-int colourFromRGB(int[] RGB){
-  if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
-  if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
-  if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
-  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
-  if (RGB[0] < 50 && RGB[1] > 50 && RGB[2] < 50) COLOUR_GREEN;
-  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
-  if (RGB[2] > 100) return COLOUR_BLUE;
-  return COLOUR_UNKNOWN;
 }
 
 
@@ -419,10 +504,17 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  find_street();
   
-  drive_along_street();
-  
+
+  while (1){
+    // Drives until next intersection
+    int status = drive_along_street();
+    printf("Finished street with code %d\n", status);
+    fflush(stdout);
+    
+    int tl, tr, br, bl;
+    scan_intersection(&tl, &tr, &br, &bl);
+  }
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
  // with your code).
