@@ -87,6 +87,12 @@
 */
 
 #include "EV3_Localization.h"
+char COLOUR_INPUT = PORT_1;
+char BACK_TOUCH_INPUT = PORT_3;
+char TOP_TOUCH_INPUT = PORT_4;
+char RIGHT_WHEEL_OUTPUT = PORT_A;
+char LEFT_WHEEL_OUTPUT = PORT_D;
+char SENSOR_WHEEL_OUTPUT = PORT_B;
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -209,7 +215,10 @@ int main(int argc, char *argv[])
 
  // HERE - write code to call robot_localization() and go_to_target() as needed, any additional logic required to get the
  //        robot to complete its task should be here.
-
+ int x = -1;
+ int y = -1;
+ int dir = -1;
+ robot_localization(&x, &y, &dir);
 
  // Cleanup and exit - DO NOT WRITE ANY CODE BELOW THIS LINE
  BT_close();
@@ -300,6 +309,37 @@ int turn_at_intersection(int turn_direction)
   return(0);
 }
 
+int[] ShiftColourSensor(int mode){
+  return 0;
+}
+
+double whiteMax = 305.0;
+int getRGBFromSensor(){
+  int[3] RGB;
+  BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
+  for (int i = 0; i < 3; i++){
+    RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
+  }
+  
+  int colour = colourFromRGB(RGB);
+  return colour;
+}
+
+int COLOUR_BLACK = 0;
+int COLOUR_YELLOW = 1;
+int COLOUR_WHITE = 2;
+int COLOUR_GREEN = 3;
+int COLOUR_BLUE = 4;
+int COLOUR_RED = 5;
+int COLOUR_UNKNOWN = 6;
+int colourFromRGB(int[] RGB){
+  if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
+  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_WHITE;
+  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
+  if (RGB[0] < 50 && RGB[2] < 50) COLOUR_GREEN;
+  
+} 
+
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
  /*  This function implements the main robot localization process. You have to write all code that will control the robot
@@ -352,7 +392,11 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-
+  int extended = 0;
+  ShiftColourSensor(0);
+  
+  
+  
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
  // with your code).
  *(robot_x)=-1;
