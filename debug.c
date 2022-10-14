@@ -26,10 +26,79 @@
 #include <unistd.h>
 
 int read_touch_robust(int port) {
-  for (int i = 0; i < 3; i++) {
+  for (int i = 0; i < 3; i++) { // Too many bluetooth calls slows down tha program
     if (BT_read_touch_sensor(port) == 0) return 0;
   }
   return 1;
+}
+
+#define mode 2 // Debug mode
+
+int COLOUR_BLACK = 0;
+int COLOUR_YELLOW = 1;
+int COLOUR_WHITE = 2;
+int COLOUR_GREEN = 3;
+int COLOUR_BLUE = 4;
+int COLOUR_RED = 5;
+int COLOUR_UNKNOWN = 6;
+
+char COLOUR_INPUT = PORT_1;
+char BACK_TOUCH_INPUT = PORT_3;
+char TOP_TOUCH_INPUT = PORT_4;
+char RIGHT_WHEEL_OUTPUT = MOTOR_A;
+char LEFT_WHEEL_OUTPUT = MOTOR_D;
+char SENSOR_WHEEL_OUTPUT = MOTOR_B;
+
+#define SENSOR_WHEEL_POWER 50
+#define whiteMax 305.0
+
+int colourFromRGB(int RGB[3]){
+  if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
+  if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
+  if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
+  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
+  if (RGB[0] < 50 && RGB[1] > 50 && RGB[2] < 50) COLOUR_GREEN;
+  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
+  if (RGB[2] > 75) return COLOUR_BLUE;
+  return COLOUR_UNKNOWN;
+}
+
+int getRGBFromSensor(){
+  int RGB[3];
+  BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
+  for (int i = 0; i < 3; i++){
+    RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
+    printf("%d ", RGB[i]);
+  }
+  printf("\n");
+  
+  int colour = colourFromRGB(RGB);
+  return colour;
+}
+
+
+
+int *shift_color_sensor(int shift_mode) {
+  // shift_mode 1: Extended, 0: Retracted
+  int *samples = (int*)calloc(100, sizeof(int));
+  int i = 0;
+  int flag = 0; // Result of last touch sensor read
+  int touch_port = shift_mode == 0 ? BACK_TOUCH_INPUT : TOP_TOUCH_INPUT;
+  int power_direction = shift_mode == 0 ? 1 : -1;
+  while (flag == 0) {
+    BT_motor_port_stop(SENSOR_WHEEL_OUTPUT, 1);
+    samples[i] = getRGBFromSensor();
+    flag = read_touch_robust(touch_port);
+    i++;
+    BT_motor_port_start(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * power_direction);
+    usleep(1000*100);
+  }
+
+  samples[i] = -1; // Termination Value
+
+  BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * -power_direction, 100);
+
+  return samples;
 }
 
 int main(int argc, char *argv[]) {
@@ -53,27 +122,38 @@ int main(int argc, char *argv[]) {
   BT_setEV3name("R2D2");
   BT_all_stop(0);
   
-  int RGB[3], gyro, extended_psh, retracted_psh;
+  if (mode == 1) {
+    int RGB[3], gyro, extended_psh, retracted_psh;
 
-  int direction = 1;
-  int e, r;
-  //BT_motor_port_start(MOTOR_B, direction * 30);
-  while (1) {
-    BT_motor_port_stop(MOTOR_B, 1);
-    e = read_touch_robust(PORT_4);
-    r = read_touch_robust(PORT_3);
-    if (e == 1 || r == 1) {
-      direction = e * 2 - 1;
+    int direction = 1;
+    int e, r;
+    //BT_motor_port_start(MOTOR_B, direction * 30);
+    while (1) {
+      BT_motor_port_stop(MOTOR_B, 1);
+      e = read_touch_robust(PORT_4);
+      r = read_touch_robust(PORT_3);
+      if (e == 1 || r == 1) {
+        direction = e * 2 - 1;
+      }
+      BT_motor_port_start(MOTOR_B, direction * 40);
+      BT_read_colour_sensor_RGB(PORT_1, RGB);
+      gyro = BT_read_gyro_sensor(PORT_3);
+
+      printf("Gyro: %d, Extended: %d, Retracted: %d, Color Hexcode: %d %d %d\n", gyro, e, r, (int) ((double)RGB[0]/(305.0/256)), (int) ((double)RGB[1]/(305.0/256)), (int) ((double)RGB[2]/(305.0/256)));
+      fflush(stdout);
     }
-    BT_motor_port_start(MOTOR_B, direction * 40);
-    BT_read_colour_sensor_RGB(PORT_1, RGB);
-    gyro = BT_read_gyro_sensor(PORT_3);
+  } else if (mode == 2) {
+    // shift_color_sensor
+    int* samples;
+    samples = shift_color_sensor(1);
+    int i = 0;
+    while (samples[i] != -1) { // Print loop
+      printf("%d ", samples[i]);
+      i++;
+    }
+    printf("\n");
 
-    printf("Gyro: %d, Extended: %d, Retracted: %d, Color Hexcode: %d %d %d\n", gyro, e, r, (int) ((double)RGB[0]/(305.0/256)), (int) ((double)RGB[1]/(305.0/256)), (int) ((double)RGB[2]/(305.0/256)));
-    fflush(stdout);
-    //printf("2");
-    //fflush(stdout);
-    //usleep(100*1000);
+
   }
 
 
