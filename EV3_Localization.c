@@ -88,12 +88,26 @@
 
 #include "EV3_Localization.h"
 #include <time.h>
-char COLOUR_INPUT = PORT_1;
-char BACK_TOUCH_INPUT = PORT_3;
-char TOP_TOUCH_INPUT = PORT_4;
-char RIGHT_WHEEL_OUTPUT = MOTOR_A;
-char LEFT_WHEEL_OUTPUT = MOTOR_D;
-char SENSOR_WHEEL_OUTPUT = MOTOR_B;
+
+#define COLOUR_INPUT PORT_1
+#define BACK_TOUCH_INPUT PORT_3
+#define TOP_TOUCH_INPUT PORT_4
+#define RIGHT_WHEEL_OUTPUT MOTOR_A
+#define LEFT_WHEEL_OUTPUT MOTOR_D
+#define SENSOR_WHEEL_OUTPUT MOTOR_B
+
+#define COLOUR_BLACK 0
+#define COLOUR_YELLOW 1
+#define COLOUR_WHITE 2
+#define COLOUR_GREEN 3
+#define COLOUR_BLUE 4
+#define COLOUR_RED 5
+#define COLOUR_UNKNOWN 6
+
+#define SENSOR_WHEEL_POWER 50
+#define FORWARD_POWER 15
+#define TURN_POWER 10
+#define whiteMax 305.0
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -227,13 +241,7 @@ int main(int argc, char *argv[])
  exit(0);
 }
 
-#define COLOUR_BLACK 0
-#define COLOUR_YELLOW 1
-#define COLOUR_WHITE 2
-#define COLOUR_GREEN 3
-#define COLOUR_BLUE 4
-#define COLOUR_RED 5
-#define COLOUR_UNKNOWN 6
+
 int colourFromRGB(int RGB[3]){
   if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
   if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
@@ -245,8 +253,6 @@ int colourFromRGB(int RGB[3]){
   return COLOUR_UNKNOWN;
 }
 
-#define SENSOR_WHEEL_POWER 50
-#define whiteMax 305.0
 int getColourFromSensor(){
   int RGB[3];
   BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
@@ -256,7 +262,7 @@ int getColourFromSensor(){
   
   int colour = colourFromRGB(RGB);
   if (colour == COLOUR_UNKNOWN){
-    printf("Colour reading was invalid");
+    printf("Colour reading was invalid\n");
     fflush(stdout);
   }
   return colour;
@@ -271,7 +277,7 @@ int read_touch_robust(int port) {
 
 int *shift_color_sensor(int shift_mode) {
   // shift_mode 1: Extended, 0: Retracted
-  printf("Shifting robot color sensor");
+  printf("Shifting robot color sensor\n");
   fflush(stdout);
   int *samples = (int*)calloc(100, sizeof(int));
   int i = 0;
@@ -291,22 +297,22 @@ int *shift_color_sensor(int shift_mode) {
 
   BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * -power_direction, 100);
 
-  printf("Finished shifting robot colour sensor");
+  printf("Finished shifting robot colour sensor\n");
   fflush(stdout);
   return samples;
 }
 
 void allign_robot(void){
   // Extends the colour sensor and rotates until the extended sensor is on black
-  printf("Alligning robot");
+  printf("Alligning robot\n");
   fflush(stdout);
   shift_color_sensor(1);
   int i = 1;
   int dir = 1;
   while (getColourFromSensor() != COLOUR_BLACK && getColourFromSensor() != COLOUR_YELLOW ){
     // TODO also check if the colour is black/yellow throughout
-    BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * 3);
-    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -3);
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * TURN_POWER);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -TURN_POWER);
     for (int a = 0; a < i; a++){
       usleep(1000 * 10);
     }
@@ -317,7 +323,7 @@ void allign_robot(void){
 
   // Retract sensor before returning
   shift_color_sensor(0);
-  printf("Finished alligning robot");
+  printf("Finished alligning robot\n");
   fflush(stdout);
 }
 
@@ -336,15 +342,15 @@ int find_street(void)
   fflush(stdout);
 
   shift_color_sensor(0);
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -5);
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -5);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -FORWARD_POWER);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -FORWARD_POWER);
   while (getColourFromSensor() != COLOUR_BLACK){}
   BT_all_stop(0);
   
   // Allign robot then return
   allign_robot();
 
-  printf("Finished finding road");
+  printf("Finished finding road\n");
   fflush(stdout);
   return(0);
 }
@@ -365,17 +371,17 @@ int drive_along_street(void)
 
   // Goes to nearest street and lines up
   find_street();
-  printf("Driving on road");
+  printf("Driving on road\n");
   fflush(stdout);
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT, 5);
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, 5);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,FORWARD_POWER);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
   while (1){
     int col = getColourFromSensor();
     if (col == COLOUR_BLACK || col == COLOUR_UNKNOWN) continue;
     
     // we're on something else, stop and figure it out
     BT_all_stop(0);
-    printf("Found something other than black/unknown");
+    printf("Found something other than black/unknown\n");
     fflush(stdout);
 
     if (col == COLOUR_YELLOW) return 1; // we have reached an intersection
@@ -383,8 +389,8 @@ int drive_along_street(void)
 
     // we went out of bounds, fix up then go back on road
     find_street(); 
-    BT_motor_port_start(LEFT_WHEEL_OUTPUT, 5);
-    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, 5);
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, FORWARD_POWER);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
   }
 
   return 0; // something is wrong
@@ -421,8 +427,8 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
    ***********************************************************************************************************************/
 
   // Temp, just testing movement
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  5);
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   5);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
   while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
   BT_all_stop(0);
 
