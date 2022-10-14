@@ -226,6 +226,12 @@ int main(int argc, char *argv[])
  exit(0);
 }
 
+void allign_robot(void){
+  // Extends the colour sensor and rotates until the extended sensor is on black
+  ShiftColourSensor(1);
+
+}
+
 int find_street(void)   
 {
  /*
@@ -235,6 +241,18 @@ int find_street(void)
   * You can use the return value to indicate success or failure, or to inform the rest of your code of the state of your
   * bot after calling this function
   */   
+ 
+  // Retract colour sensor, go backwards until we reach black
+  ShiftColourSensor(0);
+  while (getColourFromSensor() != COLOUR_BLACK){
+      BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -5);
+      BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -5);
+  }
+  BT_all_stop(0);
+  
+  // Allign robot then return
+  allign_robot();
+
   return(0);
 }
 
@@ -314,7 +332,7 @@ int[] ShiftColourSensor(int mode){
 }
 
 double whiteMax = 305.0;
-int getRGBFromSensor(){
+int getColourFromSensor(){
   int[3] RGB;
   BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
   for (int i = 0; i < 3; i++){
@@ -322,23 +340,32 @@ int getRGBFromSensor(){
   }
   
   int colour = colourFromRGB(RGB);
+  if (colour == COLOUR_UNKNOWN){
+    printf("Colour reading was invalid, trying again");
+    fflush(stdout);
+    return getColourFromSensor();
+  }
   return colour;
 }
 
-int COLOUR_BLACK = 0;
-int COLOUR_YELLOW = 1;
-int COLOUR_WHITE = 2;
-int COLOUR_GREEN = 3;
-int COLOUR_BLUE = 4;
-int COLOUR_RED = 5;
-int COLOUR_UNKNOWN = 6;
+#define COLOUR_BLACK 0;
+#define COLOUR_YELLOW 1;
+#define COLOUR_WHITE 2;
+#define COLOUR_GREEN 3;
+#define COLOUR_BLUE 4;
+#define COLOUR_RED 5;
+#define COLOUR_UNKNOWN 6;
 int colourFromRGB(int[] RGB){
+  if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
   if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
-  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_WHITE;
+  if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
+  if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
+  if (RGB[0] < 50 && RGB[1] > 50 && RGB[2] < 50) COLOUR_GREEN;
   if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
-  if (RGB[0] < 50 && RGB[2] < 50) COLOUR_GREEN;
-  
-} 
+  if (RGB[2] > 100) return COLOUR_BLUE;
+  return COLOUR_UNKNOWN;
+}
+
 
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
@@ -392,9 +419,9 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  int extended = 0;
-  ShiftColourSensor(0);
+  find_street();
   
+  drive_along_street();
   
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
