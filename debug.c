@@ -25,7 +25,12 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-
+int read_touch_robust(int port) {
+  for (int i = 0; i < 3; i++) {
+    if (BT_read_touch_sensor(port) == 0) return 0;
+  }
+  return 1;
+}
 
 int main(int argc, char *argv[]) {
   char test_msg[8] = {0x06, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x01};
@@ -50,36 +55,25 @@ int main(int argc, char *argv[]) {
   
   int RGB[3], gyro, extended_psh, retracted_psh;
 
-  //pid_t pid = fork();
-  int pid = 0;
-  if (pid == 0) { // Child
-    int direction = 1;
-    int e, r;
-    //BT_motor_port_start(MOTOR_B, direction * 30);
-    while (1) {
-      e = BT_read_touch_sensor(PORT_4);
-      r = BT_read_touch_sensor(PORT_3);
-      if (e == 1 || r == 1) {
-        direction = e * 2 - 1;
-      }
-      
-      BT_motor_port_start(MOTOR_B, direction * 50);
-      //printf("2");
-      //fflush(stdout);
-      usleep(100*1000);
+  int direction = 1;
+  int e, r;
+  //BT_motor_port_start(MOTOR_B, direction * 30);
+  while (1) {
+    BT_motor_port_stop(MOTOR_B, 1);
+    e = read_touch_robust(PORT_4);
+    r = read_touch_robust(PORT_3);
+    if (e == 1 || r == 1) {
+      direction = e * 2 - 1;
     }
-  } else {
-    for (;;) {
-      // Print all sensor data
-      BT_read_colour_sensor_RGB(PORT_1, RGB);
-      gyro = BT_read_gyro_sensor(PORT_3);
-      extended_psh = BT_read_touch_sensor(PORT_4);
-      retracted_psh = BT_read_touch_sensor(PORT_3);
+    BT_motor_port_start(MOTOR_B, direction * 40);
+    BT_read_colour_sensor_RGB(PORT_1, RGB);
+    gyro = BT_read_gyro_sensor(PORT_3);
 
-      printf("Gyro: %d, Extended: %d, Retracted: %d, Color Hexcode: %d %d %d\n", gyro, extended_psh, retracted_psh, (int) ((double)RGB[0]/(305.0/256)), (int) ((double)RGB[1]/(305.0/256)), (int) ((double)RGB[2]/(305.0/256)));
-      fflush(stdout);
-      sleep(1);
-    }
+    printf("Gyro: %d, Extended: %d, Retracted: %d, Color Hexcode: %d %d %d\n", gyro, e, r, (int) ((double)RGB[0]/(305.0/256)), (int) ((double)RGB[1]/(305.0/256)), (int) ((double)RGB[2]/(305.0/256)));
+    fflush(stdout);
+    //printf("2");
+    //fflush(stdout);
+    //usleep(100*1000);
   }
 
 
