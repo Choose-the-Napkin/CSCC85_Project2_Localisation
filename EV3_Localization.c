@@ -322,7 +322,7 @@ void allign_robot(void){
   }
 
   // Retract sensor before returning
-  shift_color_sensor(0);
+  //shift_color_sensor(0);
   printf("Finished alligning robot\n");
   fflush(stdout);
 }
@@ -338,13 +338,13 @@ int find_street(void)
   */   
  
   // Retract colour sensor, go backwards until we reach black
-  printf("Looking for road");
+  printf("Looking for road or intersection");
   fflush(stdout);
 
   shift_color_sensor(0);
   BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  -FORWARD_POWER);
   BT_motor_port_start(LEFT_WHEEL_OUTPUT,   -FORWARD_POWER);
-  while (getColourFromSensor() != COLOUR_BLACK){}
+  while (getColourFromSensor() != COLOUR_BLACK && getColourFromSensor() != COLOUR_YELLOW){}
   BT_all_stop(0);
   
   // Allign robot then return
@@ -371,6 +371,7 @@ int drive_along_street(void)
 
   // Goes to nearest street and lines up
   find_street();
+  shift_color_sensor(0);
   printf("Driving on road\n");
   fflush(stdout);
   BT_motor_port_start(LEFT_WHEEL_OUTPUT,FORWARD_POWER);
@@ -389,11 +390,59 @@ int drive_along_street(void)
 
     // we went out of bounds, fix up then go back on road
     find_street(); 
+    shift_color_sensor(0);
     BT_motor_port_start(LEFT_WHEEL_OUTPUT, FORWARD_POWER);
     BT_motor_port_start(RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
   }
 
   return 0; // something is wrong
+}
+
+int turn_at_intersection(int turn_direction)
+{
+ /*
+  * This function is used to have the robot turn either left or right at an intersection (obviously your bot can not just
+  * drive forward!). 
+  * 
+  * If turn_direction=0, turn right, else if turn_direction=1, turn left.
+  * 
+  * You're free to implement this in any way you like, but it should reliably leave your bot facing the correct direction
+  * and on a street it can follow. 
+  * 
+  * You can use the return value to indicate success or failure, or to inform your code of the state of the bot
+  */
+
+  // Allign robot then extend sensor and rotate until we're on black again and return intermediate colour
+  find_street(); // allign up
+  //shift_color_sensor(1);
+
+  printf("Initiating Turn\n");
+  fflush(stdout);
+
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * turn_direction);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER * turn_direction * -1);
+
+  int expectedColour = COLOUR_BLACK;
+  int lastReading = COLOUR_UNKNOWN;
+  while (1){
+    int newReading = getColourFromSensor();
+    if (newReading == lastReading && newReading != expectedColour && newReading != COLOUR_UNKNOWN){
+      if (newReading == COLOUR_BLACK){
+
+        printf("Finsihed turn with mid colour %d\n", expectedColour);
+        fflush(stdout);
+        BT_all_stop(0);
+        return expectedColour;
+      }
+
+      expectedColour = newReading;
+    }
+
+    lastReading = newReading;
+
+  }
+
+  return(0);
 }
 
 int scan_intersection(int *tl, int *tr, int *br, int *bl)
@@ -426,35 +475,18 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
 
-  // Temp, just testing movement
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
-  while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
-  BT_all_stop(0);
+  // Rotate 360 to record colours
+  int colourScans[4];
+  for (int i =0; i<4; i++){
+    colourScans[i] = turn_at_intersection(1);
+  }
 
  // Return invalid colour values, and a zero to indicate failure (you will replace this with your code)
- *(tl)=-1;
- *(tr)=-1;
- *(br)=-1;
- *(bl)=-1;
+ *(tl)=colourScans[0];
+ *(tr)=colourScans[1];
+ *(br)=colourScans[2];
+ *(bl)=colourScans[3];
  return(0);
- 
-}
-
-int turn_at_intersection(int turn_direction)
-{
- /*
-  * This function is used to have the robot turn either left or right at an intersection (obviously your bot can not just
-  * drive forward!). 
-  * 
-  * If turn_direction=0, turn right, else if turn_direction=1, turn left.
-  * 
-  * You're free to implement this in any way you like, but it should reliably leave your bot facing the correct direction
-  * and on a street it can follow. 
-  * 
-  * You can use the return value to indicate success or failure, or to inform your code of the state of the bot
-  */
-  return(0);
 }
 
 
@@ -512,14 +544,31 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
    ***********************************************************************************************************************/
   
 
+  int c = 0;
   while (1){
     // Drives until next intersection
     int status = drive_along_street();
     printf("Finished street with code %d\n", status);
     fflush(stdout);
     
-    int tl, tr, br, bl;
-    scan_intersection(&tl, &tr, &br, &bl);
+    if (status == 1){
+      int tl, tr, br, bl;
+      scan_intersection(&tl, &tr, &br, &bl);
+      printf("Finished scanning with codes %d %d %d %d\n", tl, tr, br, bl);
+      c = (c + 1)%2;
+      if (c==0){
+        // Rotate for now
+        turn_at_intersection(1);
+      }
+      
+      // Line up and Get off intersection
+      find_street();
+      shift_color_sensor(0);
+      BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
+      BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
+      while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
+      BT_all_stop(0);
+    }
   }
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
