@@ -258,12 +258,14 @@ int getColourFromSensor(){
   BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
   for (int i = 0; i < 3; i++){
     RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
+    printf("%d ", RGB[i]);
   }
-  
+  printf("\n");
+  fflush(stdout);
   int colour = colourFromRGB(RGB);
   if (colour == COLOUR_UNKNOWN){
-    printf("Colour reading was invalid\n");
-    fflush(stdout);
+    //printf("Colour reading was invalid\n");
+    //fflush(stdout);
   }
   return colour;
 }
@@ -307,18 +309,26 @@ void allign_robot(void){
   printf("Alligning robot\n");
   fflush(stdout);
   shift_color_sensor(1);
-  int i = 1;
+  int i = 0;
   int dir = 1;
-  while (getColourFromSensor() != COLOUR_BLACK && getColourFromSensor() != COLOUR_YELLOW ){
+  while (1){
     // TODO also check if the colour is black/yellow throughout
     BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * TURN_POWER);
     BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -TURN_POWER);
-    for (int a = 0; a < i; a++){
-      usleep(1000 * 10);
-    }
+    usleep(1000 * 25 * i);
     BT_all_stop(0);
-    i *=2;
+    int seen = getColourFromSensor();
+    if (seen == COLOUR_BLACK || seen == COLOUR_YELLOW){
+      return;
+    }
+
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * -TURN_POWER);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * TURN_POWER);
+    usleep(1000 * 25 * i);
+    BT_all_stop(0);
+
     dir *=-1;
+    i += 10;
   }
 
   // Retract sensor before returning
@@ -413,20 +423,21 @@ int turn_at_intersection(int turn_direction)
   */
 
   // Allign robot then extend sensor and rotate until we're on black again and return intermediate colour
-  find_street(); // allign up
-  //shift_color_sensor(1);
+  //find_street(); // allign up
+  shift_color_sensor(1);
 
   printf("Initiating Turn\n");
   fflush(stdout);
 
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * turn_direction);
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER * turn_direction * -1);
+  
 
   int expectedColour = COLOUR_BLACK;
-  int lastReading = COLOUR_UNKNOWN;
+  //int lastReading = COLOUR_UNKNOWN;
   while (1){
+    BT_all_stop(1);
+    usleep(1000*100);
     int newReading = getColourFromSensor();
-    if (newReading == lastReading && newReading != expectedColour && newReading != COLOUR_UNKNOWN){
+    if (newReading != expectedColour && newReading != COLOUR_UNKNOWN){
       if (newReading == COLOUR_BLACK){
 
         printf("Finsihed turn with mid colour %d\n", expectedColour);
@@ -438,8 +449,10 @@ int turn_at_intersection(int turn_direction)
       expectedColour = newReading;
     }
 
-    lastReading = newReading;
-
+    //lastReading = newReading;
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * turn_direction);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER * turn_direction * -1);
+    usleep(1000*350);
   }
 
   return(0);
@@ -556,7 +569,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       scan_intersection(&tl, &tr, &br, &bl);
       printf("Finished scanning with codes %d %d %d %d\n", tl, tr, br, bl);
       c = (c + 1)%2;
-      if (c==0){
+      if (c==3){
         // Rotate for now
         turn_at_intersection(1);
       }
