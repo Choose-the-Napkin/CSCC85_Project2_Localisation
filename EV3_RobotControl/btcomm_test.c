@@ -17,7 +17,7 @@ int main(int argc, char *argv[])
    tone_data[i][1]=-1;
    tone_data[i][2]=-1;
  }
- 
+ /*
  tone_data[0][0]=262;
  tone_data[0][1]=250;
  tone_data[0][2]=1;
@@ -30,6 +30,19 @@ int main(int argc, char *argv[])
  tone_data[3][0]=523;
  tone_data[3][1]=250;
  tone_data[3][2]=63;
+ */
+ 
+ tone_data[0][0]=50;
+ tone_data[0][1]=500;
+ tone_data[0][2]=1;
+
+ tone_data[1][0]=525;
+ tone_data[1][1]=500;
+ tone_data[1][2]=1;
+
+  tone_data[2][0]=1000;
+  tone_data[2][1]=500;
+  tone_data[2][2]=1;
  
  memset(&reply[0],0,1024);
  
