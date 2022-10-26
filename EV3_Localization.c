@@ -116,6 +116,8 @@ int map[400][4];            // This holds the representation of the map, up to 2
 int sx, sy;                 // Size of the map (number of intersections along x and y)
 double beliefs[400][4];     // Beliefs for each location and motion direction
 
+void handle_out_of_bounds();
+
 int main(int argc, char *argv[])
 {
  char mapname[1024];
@@ -237,6 +239,7 @@ int main(int argc, char *argv[])
  robot_localization(&x, &y, &dir);
  BT_all_stop(0);
 
+  BT_all_stop(0);
  // Cleanup and exit - DO NOT WRITE ANY CODE BELOW THIS LINE
  BT_close();
  free(map_image);
@@ -337,6 +340,41 @@ int is_alligned(void){
   
 }
 
+void shift_sensor_until_color(int color, int shift_mode) {
+  // shift_mode 1: Extended, 0: Retracted
+  int flag = getColourFromSensor() == color;
+  int touch_port = shift_mode == 0 ? BACK_TOUCH_INPUT : TOP_TOUCH_INPUT;
+  int power_direction = shift_mode == 0 ? 1 : -1;
+  int color_read;
+  while (!flag && read_touch_robust(touch_port) == 0) {
+    color_read = getColourFromSensor();
+    printf("%d", color_read);
+    flag = color_read == color;
+    BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * power_direction, 50);
+    usleep(1000*50);
+  }
+}
+
+void handle_out_of_bounds() {
+  // Assume retracted at start
+  while (read_touch_robust(TOP_TOUCH_INPUT) == 0) {
+    BT_all_stop(0);
+    shift_sensor_until_color(COLOUR_RED, 1);
+    BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, -FORWARD_POWER);
+    usleep(1000*300);
+  }
+
+  BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
+  while(getColourFromSensor() != COLOUR_RED){}
+  BT_all_stop(0);
+
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT, -TURN_POWER);
+  
+  while(getColourFromSensor() != COLOUR_BLACK){}
+
+  BT_all_stop(0);
+}
 
 void allign_robot(void){
   // Extends the colour sensor and rotates until the extended sensor is on black
