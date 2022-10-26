@@ -87,6 +87,7 @@
 */
 
 #include "EV3_Localization.h"
+#include <signal.h>
 #include <time.h>
 
 #define COLOUR_INPUT PORT_1
@@ -234,6 +235,7 @@ int main(int argc, char *argv[])
  int y = -1;
  int dir = -1;
  robot_localization(&x, &y, &dir);
+ BT_all_stop(0);
 
  // Cleanup and exit - DO NOT WRITE ANY CODE BELOW THIS LINE
  BT_close();
@@ -326,6 +328,16 @@ int *shift_color_sensor(int shift_mode) {
   return samples;
 }
 
+int is_alligned(void){
+  int seen = getColourFromSensor();
+  if (seen != COLOUR_BLACK && seen != COLOUR_YELLOW){
+    return 0;
+  }
+  
+  
+}
+
+
 void allign_robot(void){
   // Extends the colour sensor and rotates until the extended sensor is on black
   printf("Alligning robot\n");
@@ -335,7 +347,7 @@ void allign_robot(void){
     return;
   }
 
-  int i = 0;
+  int i = ;
   int dir = 1;
   while (1){
     // TODO also check if the colour is black/yellow throughout
@@ -343,10 +355,7 @@ void allign_robot(void){
     BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -TURN_POWER);
     usleep(1000 * 25 * i);
     BT_all_stop(0);
-    int seen = getColourFromSensor();
-    if (seen == COLOUR_BLACK || seen == COLOUR_YELLOW){
-      return;
-    }
+    if (is_alligned()) return;
 
     BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * -TURN_POWER);
     BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * TURN_POWER);
@@ -553,6 +562,10 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
  return(0);
 }
 
+void intHandler(int dummy) {
+  BT_all_stop(0);
+  exit(0);
+}
 
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
@@ -609,6 +622,9 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   
 
   int c = 0;
+  
+  signal(SIGINT, intHandler);
+  
   while (1){
     // Drives until next intersection
     int status = drive_along_street();
