@@ -1,6 +1,7 @@
 if [ "$1" = "-d" ] ; then
     g++ debug.c ./EV3_RobotControl/btcomm.c -lbluetooth -o debug
-else
-    echo "$1"
+elif [ "$1" = "" ] ; then
     g++ EV3_Localization.c ./EV3_RobotControl/btcomm.c -lbluetooth  -o localisation
+else
+    g++ $1.c ./EV3_RobotControl/btcomm.c -lbluetooth  -o $1
 fi
