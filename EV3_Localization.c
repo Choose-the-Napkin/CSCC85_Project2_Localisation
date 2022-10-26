@@ -91,6 +91,7 @@
 #include <time.h>
 
 #define COLOUR_INPUT PORT_1
+#define GYRO_INPUT PORT_2
 #define BACK_TOUCH_INPUT PORT_3
 #define TOP_TOUCH_INPUT PORT_4
 #define RIGHT_WHEEL_OUTPUT MOTOR_A
@@ -414,28 +415,35 @@ void align_robot(int checkBothWays){
     return;
   }
 
-  // Try rotations; checkBothWays = 1 means try increasing offsets, =0 means go slowly in one direction
-  int i = 5;
+  int initialAngle = BT_read_gyro_sensor(GYRO_INPUT);
+
+  // Rotate slowly until alligned; checkBothWays =1 means switch directions if d_angle > 30
   int dir = 1;
   while (1){
     BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * TURN_POWER);
     BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -TURN_POWER);
-    usleep(1000 * 25 * i);
+    usleep(1000 * 125);
     BT_all_stop(0);
     if (is_aligned()){
+      usleep(1000 * 125);
       isfirstStreet = 0;
+      // shift a little more so you're not just pointing to an edge
+      BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * dir);
+      BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER * dir * -1);
+      usleep(1000*500);
+      BT_all_stop(1);
       return;
     }
     
-    if (checkBothWays){
-      BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * -TURN_POWER);
-      BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * TURN_POWER);
-      usleep(1000 * 25 * i);
-      BT_all_stop(0);
-      dir *=-1;
-      i += 5;
+    if (checkBothWays && initialAngle != 1000){
+      int newAngle = BT_read_gyro_sensor(GYRO_INPUT);
+      if (abs(newAngle - initialAngle) > 30){
+        initialAngle = 1000;
+        dir *=-1;
+      }
     }
 
+    usleep(1000 * 25);
   }
 
   // Retract sensor before returning
@@ -534,12 +542,24 @@ int drive_along_street()
   printf("Driving on road\n");
   fflush(stdout);
   BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
+  
   while (1){
     int col = getColourFromSensor();
     if (col == COLOUR_BLACK || col == COLOUR_UNKNOWN) continue;
     
     // we're on something else, stop and figure it out
     BT_all_stop(0);
+    
+    // Check more rigorously 
+    if (!(col == getColourFromSensor() && col == getColourFromSensor())){
+      printf("Stopping because of colour but might be too early to tell\n");
+      usleep(1000 * 100);
+      BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
+      usleep(1000 * 10);
+      continue;
+    }
+    
+    // Act according to colour
     printf("Found something other than black/unknown\n");
     fflush(stdout);
 
@@ -676,6 +696,22 @@ void intHandler(int dummy) {
   exit(0);
 }
 
+void pushOffIntersection(void){
+  find_street();
+  shift_color_sensor(0);
+  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
+  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
+  usleep(1000*10); // in case we're a tad behind
+  while (1){
+    int pass = 0;
+    for (int i=0; i<3; i++){
+      if (!(getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN)) pass += 1;
+    }
+    if (pass==3)break;
+  }
+  BT_all_stop(0);
+}
+
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
  /*  This function implements the main robot localization process. You have to write all code that will control the robot
@@ -757,12 +793,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       }
     
       // Line up and Get off intersection
-      find_street();
-      shift_color_sensor(0);
-      BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
-      BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
-      while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
-      BT_all_stop(0);
+      pushOffIntersection();
       
     }else if (status == 2){
       handle_out_of_bounds();

@@ -90,6 +90,7 @@ int BT_close() {
           *socket_id);
   close(*socket_id);
   free(socket_id);
+  return 0;
 }
 
 int BT_setEV3name(const char *name) {
@@ -162,6 +163,7 @@ int BT_setEV3name(const char *name) {
             "special characters\n");
 
   message_id_counter++;
+  return 0;
 }
 
 int BT_play_tone_sequence(const int tone_data[50][3]) {
@@ -1303,6 +1305,27 @@ int BT_read_gyro_sensor(char sensor_port) {
     angle <<= 8;
     angle |= reply[5];
     fprintf(stderr, "angle: %d\n", angle);
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // EDITED LINES SINCE ORIGINAL API BY THE LEGORIANS - BEGIN BLOCK
+    //  We noticed that the gyro only worked in debug mode. 
+    //  This was because the API originally only updated the angle value in debug mode.
+    //  Therefore, we simply added the code in the debug block that updated the angle to an else block
+    //  Now it works as intended with only one caveat:
+    //  If the robot's program ends, the gyro sensor will keep accumulating rotation regardless of how much it moves
+    //  This effect also happens when a new program is run with it.
+    //  In order to stop this effect, the gyro sensor must be unplugged and plugged back in so that the angle
+    //    reset back to 0 and stopped accumulating. Restarting the robot also fixes this issue.
+#else
+    angle |= reply[8];
+    angle <<= 8;
+    angle |= reply[7];
+    angle <<= 8;
+    angle |= reply[6];
+    angle <<= 8;
+    angle |= reply[5];
+    //END BLOCK
+    /////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #endif
   } else {
     fprintf(stderr, "BT_read_gyro_sensor: Command failed\n");
