@@ -832,11 +832,11 @@ void pushOffIntersection(void){
 }
 
 int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction){
-    // shift_all(lastCommand)
+    shiftBeliefs(lastCommand);
 
     // Calculate current probabilities 
     double colourPosibilities[sx * sy][4];
-    for (int i = 0; i < sx * sy * 4) colourPosibilities[i / 4][i % 4] = 0.01;
+    for (int i = 0; i < sx * sy * 4; i++) colourPosibilities[i / 4][i % 4] = 0.01;
     
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
@@ -855,7 +855,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
                 }
 
                 if (matches){
-                    int off_ind = off == 0 : 3 ? off - 1;
+                    int off_ind = off == 0 ? 3 : off - 1;
                     colourPosibilities[index][off_ind] += 0.95;
                     for (int extra_pos = 1; extra_pos < 4; extra_pos++){
                         colourPosibilities[index][(off_ind + extra_pos)%4] += 0.05;
@@ -877,7 +877,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
 
     // Normalize the new beliefs
     double total = 0;
-    for (int i = 0; i < sx * sy * 4) total += colourPosibilities[i / 4][i % 4];
+    for (int i = 0; i < sx * sy * 4; i++) total += colourPosibilities[i / 4][i % 4];
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
             int index = i + j*sx;
@@ -992,7 +992,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       if (lastAction > -1){
         if (updateLocation(colours, lastAction, robot_x, robot_y, direction)){
             // We're done!
-            return;
+            return 1;
         }
       }
 
@@ -1018,7 +1018,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
 
       // maybe do something for localization
     }
-  }*/
+  }
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
  // with your code).
