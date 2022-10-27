@@ -98,18 +98,19 @@
 #define LEFT_WHEEL_OUTPUT MOTOR_D
 #define SENSOR_WHEEL_OUTPUT MOTOR_B
 
-#define COLOUR_BLACK 0
-#define COLOUR_YELLOW 1
-#define COLOUR_WHITE 2
+#define COLOUR_BLACK 1
+#define COLOUR_BLUE 2
 #define COLOUR_GREEN 3
-#define COLOUR_BLUE 4
+#define COLOUR_YELLOW 4
 #define COLOUR_RED 5
-#define COLOUR_UNKNOWN 6
+#define COLOUR_WHITE 6
+#define COLOUR_UNKNOWN 7
 
 #define SENSOR_WHEEL_POWER 50
 #define FORWARD_POWER 15
 #define TURN_POWER 10
 #define whiteMax 305.0
+#define THRESHOLD_OF_CERTAINTY 0.65
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -256,13 +257,12 @@ void playBeep(int mode){
     tone_data[i][2]=-1;
   }
 
-
  tone_data[0][0]=50;
  tone_data[0][1]=500;
  tone_data[0][2]=1;
 
- if (mode == 1) tone_data[0][0]=600;
- else if (mode == 2) tone_data[0][0]=1150;
+ if (mode == COLOUR_BLUE) tone_data[0][0]=600;
+ else if (mode == COLOUR_GREEN) tone_data[0][0]=1150;
  BT_play_tone_sequence(tone_data);
 }
 
@@ -296,6 +296,7 @@ int colourFromRGB(int RGB[3], int lastChosen){
 }
 
  */
+
 
 int colourFromRGB(int RGB[3]){
   if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
@@ -597,7 +598,7 @@ int turn_at_intersection(int turn_direction)
   fflush(stdout);
 
   int expectedColour = COLOUR_BLACK;
-  int readings[3] = {0, 0, 0};
+  int readings[] = {0, 0, 0, 0};
   while (1){
     BT_all_stop(1);
     usleep(1000*150);
@@ -613,12 +614,12 @@ int turn_at_intersection(int turn_direction)
     //printf("Scanned colour %d, expected %d\n", newReading, expectedColour);
     //fflush(stdout);
     if (newReading >= 2 && newReading <= 4){
-      readings[newReading - 2] += 1;
+      readings[newReading - 3] += 1;
       expectedColour = newReading;
     }else if (newReading == COLOUR_BLACK && expectedColour != COLOUR_BLACK){
       int c = -1;
       int i = -1;
-      for (int a = 0; a<3; a++){
+      for (int a = 0; a<4; a++){
         if (readings[a] > c){
           c = readings[a];
           i = a;
@@ -628,7 +629,7 @@ int turn_at_intersection(int turn_direction)
       printf("Finsihed turn with mid colour %d\n", i + 2);
       fflush(stdout);
       //BT_all_stop(0);
-      return i + 2;
+      return i + 3;
     }
 
     //lastReading = newReading;
@@ -675,7 +676,7 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
   shift_color_sensor(1);
   for (int i =0; i<4; i++){
     colourScans[i] = turn_at_intersection(1);
-    playBeep(colourScans[i] - 2);
+    playBeep(colourScans[i]);
   }
 
   BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER);
@@ -710,6 +711,73 @@ void pushOffIntersection(void){
     if (pass==3)break;
   }
   BT_all_stop(0);
+}
+
+int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction){
+    // shift_all(lastCommand)
+
+    // Calculate current probabilities 
+    double colourPosibilities[sx * sy][4];
+    for (int i = 0; i < sx * sy * 4) colourPosibilities[i / 4][i % 4] = 0.01;
+    
+    for (int i = 0; i < sx; i++){
+        for (int j = 0; j < sy; j++){
+            int index = i + j*sx;
+
+            // check if the colouring matches this
+            // since we go counter clockwise, offset = 0 is LEFT, 1 is UP, 2 is RIGHT, 3 is DOWN
+            // Shift this by 1, where 0 = UP, 1 = RIGHT, 2 = DOWN, 3 = LEFT
+            for (int off = 0; off  < 4; off++){
+                int matches = 1;
+                for (int check = 0; check < 4; check++){
+                    if (map[index][(check + off) % 4] != colours[index]){
+                        matches = 0;
+                        break;
+                    }
+                }
+
+                if (matches){
+                    int off_ind = off == 0 : 3 ? off - 1;
+                    colourPosibilities[index][off_ind] += 0.95;
+                    for (int extra_pos = 1; extra_pos < 4; extra_pos++){
+                        colourPosibilities[index][(off_ind + extra_pos)%4] += 0.05;
+                    }
+                }
+            }
+        }
+    }
+
+    // multiply probabilities
+    for (int i = 0; i < sx; i++){
+        for (int j = 0; j < sy; j++){
+            int index = i + j*sx;
+            for (int d = 0; d < 4; d++){
+                beliefs[index][d] *= colourPosibilities[index][d];
+            } 
+        }
+    }
+
+    // Normalize the new beliefs
+    double total = 0;
+    for (int i = 0; i < sx * sy * 4) total += colourPosibilities[i / 4][i % 4];
+    for (int i = 0; i < sx; i++){
+        for (int j = 0; j < sy; j++){
+            int index = i + j*sx;
+            for (int d = 0; d < 4; d++){
+                beliefs[index][d] = beliefs[index][d]/total;
+
+                // Check if any belief is above the threshold of certainty
+                if (beliefs[index][d] > THRESHOLD_OF_CERTAINTY){
+                    *(robot_x) = i;
+                    *(robot_y) = j;
+                    *(direction) = d;
+                    return 1;
+                }
+            } 
+        }
+    }
+
+    return 0;
 }
 
 int robot_localization(int *robot_x, int *robot_y, int *direction)
@@ -764,10 +832,9 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  
 
   int c = 0;
-  
+  int lastAction = 0;
   signal(SIGINT, intHandler);
   
   while (1){
@@ -782,14 +849,25 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       scan_intersection(&tl, &tr, &br, &bl);
       printf("Finished scanning with codes %d %d %d %d\n", tl, tr, br, bl);
       
+      int colours[] = {tr, br, bl, tl};
+      if (lastAction > -1){
+        if (updateLocation(colours, lastAction, robot_x, robot_y, direction)){
+            // We're done!
+            return;
+        }
+      }
+
       c = (c + 1)%2;
       if (c==0){
         // Rotate for now
+        lastAction = 1;
         turn_at_intersection(-1);
         BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * -1);
         BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER);
         usleep(1000*500);
         BT_all_stop(1);
+      }else{
+        lastAction = 0;
       }
     
       // Line up and Get off intersection
@@ -797,6 +875,8 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       
     }else if (status == 2){
       handle_out_of_bounds();
+      lastAction = -1;
+
       // maybe do something for localization
     }
   }
