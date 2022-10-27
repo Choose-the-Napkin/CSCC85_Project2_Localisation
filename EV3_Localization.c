@@ -898,6 +898,20 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
     return 0;
 }
 
+void printBeliefs() {
+  for (int d = 0; d < 4; d++) {
+    printf("d: %d\n", d);
+    for (int y = 1; y <= sy; y++) {
+      for (int x = 1; x <= sx; x++) {
+        //printf(beliefs[getIndexFromCoord(x,y)][d] == 0 ? " x " : " o ");
+        printf(" %f ", beliefs[getIndexFromCoord(x,y)][d]);
+      }
+      printf("\n");
+    }
+    printf("\n\n");
+  }
+}
+
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
  /*  This function implements the main robot localization process. You have to write all code that will control the robot
@@ -950,7 +964,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  for (int i = 0; i < 400; i++) {
+  /*for (int i = 0; i < 400; i++) {
     for (int j = 0; j < 4; j++) {
       beliefs[i][j] = 0;
     }
@@ -970,7 +984,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       printf("\n");
     }
     printf("\n\n");
-  }
+  }*/
   
   int c = 0;
   int lastAction = 0;
@@ -994,6 +1008,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
             // We're done!
             return 1;
         }
+        printBeliefs();
       }
 
       c = (c + 1)%2;
