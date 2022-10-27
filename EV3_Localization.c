@@ -184,13 +184,13 @@ int main(int argc, char *argv[])
   }
 
  // Open a socket to the EV3 for remote controlling the bot.
- if (BT_open(HEXKEY)!=0)
+ /*if (BT_open(HEXKEY)!=0)
  {
   fprintf(stderr,"Unable to open comm socket to the EV3, make sure the EV3 kit is powered on, and that the\n");
   fprintf(stderr," hex key for the EV3 matches the one in EV3_Localization.h\n");
   free(map_image);
   exit(1);
- }
+ }*/
 
  fprintf(stderr,"All set, ready to go!\n");
  
@@ -592,6 +592,124 @@ int scan_intersection(int *tl, int *tr, int *br, int *bl)
  return(0);
 }
 
+int getIndexFromCoord(int x, int y) {
+  return (x-1) + (sx*(y-1));
+}
+
+typedef struct coord {
+  int x;
+  int y;
+  int invalid;
+} coord;
+
+typedef struct shiftdiff {
+  int x;
+  int y;
+  double weight;
+} shiftdiff;
+
+double shiftBelief(int x, int y, int direction, int turn, double buff[][4]) {
+  //default coords are vertical 
+  shiftdiff main = {0, 1}, ld = {-1, 1}, rd = {1, 1}, df = {0, 2}; // main, left diag, right diag, double forward
+
+  main.weight = 0.85;
+  ld.weight = 0.05;
+  rd.weight = 0.05;
+  df.weight = 0.05; // add up to 1
+
+  int shiftdir = (direction+turn)%4; 
+  // Note the diffs are opposite to what we expect
+  // This is since lower indicies mean higher and to the left!
+  int coordswap, mult;
+  // mult is what to multiply the diffs by, and coordswap is a flag to swap coords
+  // note that all directions can be made using at most a swap and a sign flip
+  if (shiftdir == 0) {
+    mult = -1;
+    coordswap = 0;
+  } else if (shiftdir == 1) {
+    mult = 1;
+    coordswap = 1;
+  } else if (shiftdir == 2) {
+    mult = 1;
+    coordswap = 0;
+  } else {
+    mult = -1;
+    coordswap = 1;
+  }
+
+  shiftdiff diffs[4] = {main, ld, rd, df}; // Since these are copied by value, no more using the variable names
+
+  int temp; // Swap var
+  double sum = 0; // Sum of probs added to the buffer
+  for (int i = 0; i < 4; i++) {
+    if (coordswap) { // swap coords
+      temp = diffs[i].x;
+      diffs[i].x = diffs[i].y;
+      diffs[i].y = temp;
+    }
+
+    diffs[i].x *= mult; // effects of mult
+    diffs[i].y *= mult;
+
+    if (x+diffs[i].x < 1 || y+diffs[i].y < 1 || y+diffs[i].y > sy || x+diffs[i].x > sx) {
+      // out of bounds
+    } else {
+      // Applying the effects of weight here
+      // This on turn applies the direction of the turn as wanted
+      buff[getIndexFromCoord(x+diffs[i].x, y+diffs[i].y)][shiftdir] += beliefs[getIndexFromCoord(x,y)][direction]*diffs[i].weight;
+      sum += beliefs[getIndexFromCoord(x,y)][direction]*diffs[i].weight; // add the weight to sum
+    }
+  }
+  
+  return sum; // total added to buffer
+}
+
+void shiftBeliefs(int turn) {
+  double buff[400][4]; // use buffer since we dont want to iterate over already shifted values
+  for (int i = 0; i < 400; i++) { // Clear contents
+    for(int j = 0; j < 4; j++) {
+      buff[i][j] = 0;
+    }
+  }
+
+  double n = 0; // normalisation factor
+  for (int d = 0; d < 4; d++) {
+    for (int x = 1; x <= sx; x++) {
+      for (int y = 1; y <= sy; y++) {
+        n += shiftBelief(x, y, d, turn, buff);
+      }
+    }
+  }
+
+  for (int i = 0; i < 400; i++) { // Copy buff onto beliefs
+    for(int j = 0; j < 4; j++) {
+      beliefs[i][j] = buff[i][j]/n; // normalize
+    }
+  }
+}
+
+int intersect_agreement(int tl, int tr, int br, int bl, int x, int y, int d) { // 0 if yes, otherwise no
+  /* d:
+  0: UP
+  1: RIGHT
+  2: DOWN
+  3: LEFT*/
+  int c[4] = {tl,tr,br,bl};
+  int* buildings = map[getIndexFromCoord(x,y)];
+  for (int i = 0; i < 4; i++) {
+    if (buildings[(d+i)%4] != c[i]) {
+      return 0;
+    }
+  }
+
+  return 1;
+}
+
+// int (colours) -> known location -1, -1
+void updateBeliefs(int tl, int tr, int br, int bl) {
+  
+}
+
 
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
@@ -645,8 +763,28 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  
+  for (int i = 0; i < 400; i++) {
+    for (int j = 0; j < 4; j++) {
+      beliefs[i][j] = 0;
+    }
+  }
 
+  beliefs[getIndexFromCoord(2,3)][1] = 0.5;
+  beliefs[getIndexFromCoord(2,2)][1] = 0.5;
+
+  shiftBeliefs(0);
+  for (int d = 0; d < 4; d++) {
+    printf("d: %d\n", d);
+    for (int y = 1; y <= sy; y++) {
+      for (int x = 1; x <= sx; x++) {
+        //printf(beliefs[getIndexFromCoord(x,y)][d] == 0 ? " x " : " o ");
+        printf(" %f ", beliefs[getIndexFromCoord(x,y)][d]);
+      }
+      printf("\n");
+    }
+    printf("\n\n");
+  }
+  /*
   int c = 0;
   while (1){
     // Drives until next intersection
@@ -671,13 +809,13 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
     
       // Line up and Get off intersection
       find_street();
-      shift_color_sensor(0);
+      free(shift_color_sensor(0));
       BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
       BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
       while (getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN){}
       BT_all_stop(0);
     }
-  }
+  }*/
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
  // with your code).
