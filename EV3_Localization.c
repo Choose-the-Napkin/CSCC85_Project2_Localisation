@@ -110,7 +110,7 @@
 #define FORWARD_POWER 15
 #define TURN_POWER 10
 #define whiteMax 305.0
-#define THRESHOLD_OF_CERTAINTY 0.65
+#define THRESHOLD_OF_CERTAINTY 0.8
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -187,14 +187,14 @@ int main(int argc, char *argv[])
   }
 
  // Open a socket to the EV3 for remote controlling the bot.
- /*if (BT_open(HEXKEY)!=0)
+ if (BT_open(HEXKEY)!=0)
  {
   fprintf(stderr,"Unable to open comm socket to the EV3, make sure the EV3 kit is powered on, and that the\n");
   fprintf(stderr," hex key for the EV3 matches the one in EV3_Localization.h\n");
   free(map_image);
   exit(1);
- }*/
-
+ }
+  
  fprintf(stderr,"All set, ready to go!\n");
  
 /*******************************************************************************************************************************
@@ -319,6 +319,7 @@ int getColourFromSensor(){
     RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
   }
   int colour = colourFromRGB(RGB);
+  printf("Reading %d %d %d as colour %d \n", RGB[0], RGB[1], RGB[2], colour);
   return colour;
 }
 
@@ -613,7 +614,7 @@ int turn_at_intersection(int turn_direction)
 
     //printf("Scanned colour %d, expected %d\n", newReading, expectedColour);
     //fflush(stdout);
-    if (newReading >= 2 && newReading <= 4){
+    if (newReading == COLOUR_GREEN || newReading == COLOUR_BLUE || newReading == COLOUR_WHITE){
       readings[newReading - 3] += 1;
       expectedColour = newReading;
     }else if (newReading == COLOUR_BLACK && expectedColour != COLOUR_BLACK){
@@ -626,7 +627,7 @@ int turn_at_intersection(int turn_direction)
         }
       }
 
-      printf("Finsihed turn with mid colour %d\n", i + 2);
+      printf("Finsihed turn with mid colour %d\n", i + 3);
       fflush(stdout);
       //BT_all_stop(0);
       return i + 3;
@@ -805,11 +806,6 @@ int intersect_agreement(int tl, int tr, int br, int bl, int x, int y, int d) { /
   return 1;
 }
 
-// int (colours) -> known location -1, -1
-void updateBeliefs(int tl, int tr, int br, int bl) {
-  
-}
-
 void intHandler(int dummy) {
   BT_all_stop(0);
   exit(0);
@@ -838,6 +834,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
     double colourPosibilities[sx * sy][4];
     for (int i = 0; i < sx * sy * 4; i++) colourPosibilities[i / 4][i % 4] = 0.01;
     
+    printf("Determining location based on readings\n");
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
             int index = i + j*sx;
@@ -848,7 +845,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
             for (int off = 0; off  < 4; off++){
                 int matches = 1;
                 for (int check = 0; check < 4; check++){
-                    if (map[index][(check + off) % 4] != colours[index]){
+                    if (map[index][(check + off) % 4] != colours[check]){
                         matches = 0;
                         break;
                     }
@@ -860,6 +857,8 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
                     for (int extra_pos = 1; extra_pos < 4; extra_pos++){
                         colourPosibilities[index][(off_ind + extra_pos)%4] += 0.05;
                     }
+
+                    printf("MATCH: %d %d %d\n", i, j, off_ind);
                 }
             }
         }
@@ -886,6 +885,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
 
                 // Check if any belief is above the threshold of certainty
                 if (beliefs[index][d] > THRESHOLD_OF_CERTAINTY){
+                    printf("FINAL MATCH: %d %d %d\n", i, j, off_ind);
                     *(robot_x) = i;
                     *(robot_y) = j;
                     *(direction) = d;
@@ -950,6 +950,9 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
+
+
+   
   for (int i = 0; i < 400; i++) {
     for (int j = 0; j < 4; j++) {
       beliefs[i][j] = 0;
@@ -1026,6 +1029,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
  *(robot_y)=-1;
  *(direction)=-1;
  return(0);
+ 
 }
 
 int go_to_target(int robot_x, int robot_y, int direction, int target_x, int target_y)
