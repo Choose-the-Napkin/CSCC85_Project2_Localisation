@@ -805,23 +805,6 @@ void printBeliefs(double b[][4]) {
   }
 }
 
-int intersect_agreement(int tl, int tr, int br, int bl, int x, int y, int d) { // 0 if yes, otherwise no
-  /* d:
-  0: UP
-  1: RIGHT
-  2: DOWN
-  3: LEFT*/
-  int c[4] = {tl,tr,br,bl};
-  int* buildings = map[getIndexFromCoord(x,y)];
-  for (int i = 0; i < 4; i++) {
-    if (buildings[(d+i)%4] != c[i]) {
-      return 0;
-    }
-  }
-
-  return 1;
-}
-
 void intHandler(int dummy) {
   BT_all_stop(0);
   exit(0);
@@ -843,13 +826,10 @@ void pushOffIntersection(void){
   BT_all_stop(0);
 }
 
-int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction){
-    printf("At the start:\n");
-    printBeliefs(beliefs);
-
-    shiftBeliefs(lastCommand);
-    printf("After shift:\n");
-    printBeliefs(beliefs);
+int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction, int isFirst){
+    if (!isFirst){
+      shiftBeliefs(lastCommand);
+    }
 
     // Calculate current probabilities 
     double colourPosibilities[sx * sy][4];
@@ -886,9 +866,6 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
     }
 
 
-    printf("Determe color probs:\n");
-    printBeliefs(colourPosibilities);
-
     // multiply probabilities
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
@@ -899,14 +876,9 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
         }
     }
 
-    printf("After multiplication:\n");
-    printBeliefs(beliefs);
-
     // Normalize the new beliefs
     double total = 0;
-    for (int i = 0; i < sx * sy * 4; i++) total += colourPosibilities[i / 4][i % 4];
-
-    printf("totals: %f\n", total);
+    for (int i = 0; i < sx * sy * 4; i++) total += beliefs[i / 4][i % 4];
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
             int index = i + j*sx;
@@ -925,7 +897,6 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
         }
     }
 
-    printf("Done?\n");
     return 0;
 }
 
@@ -982,29 +953,9 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
-  /*for (int i = 0; i < 400; i++) {
-    for (int j = 0; j < 4; j++) {
-      beliefs[i][j] = 0;
-    }
-  }
 
-  beliefs[getIndexFromCoord(2,3)][1] = 0.5;
-  beliefs[getIndexFromCoord(2,2)][1] = 0.5;
-
-  shiftBeliefs(0);
-  for (int d = 0; d < 4; d++) {
-    printf("d: %d\n", d);
-    for (int y = 1; y <= sy; y++) {
-      for (int x = 1; x <= sx; x++) {
-        //printf(beliefs[getIndexFromCoord(x,y)][d] == 0 ? " x " : " o ");
-        printf(" %f ", beliefs[getIndexFromCoord(x,y)][d]);
-      }
-      printf("\n");
-    }
-    printf("\n\n");
-  }*/
-  
   int c = 0;
+  int firstCall = 1;
   int lastAction = 0;
   signal(SIGINT, intHandler);
   
@@ -1022,17 +973,18 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       
       int colours[] = {bl, tl, tr, br};
       if (lastAction > -1){
-        if (updateLocation(colours, lastAction, robot_x, robot_y, direction)){
+        if (updateLocation(colours, lastAction, robot_x, robot_y, direction, firstCall)){
             // We're done!
             return 1;
         }
+        firstCall = 0;
         printBeliefs(beliefs);
       }
 
       c = (c + 1)%2;
       if (c==0){
         // Rotate for now
-        lastAction = 1;
+        lastAction = 3;
         turn_at_intersection(-1);
         BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * -1);
         BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER);
@@ -1052,6 +1004,7 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       // maybe do something for localization
     }
   }
+  
   
  // Return an invalid location/direction and notify that localization was unsuccessful (you will delete this and replace it
  // with your code).
