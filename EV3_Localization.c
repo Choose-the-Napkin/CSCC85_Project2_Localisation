@@ -299,6 +299,7 @@ int colourFromRGB(int RGB[3], int lastChosen){
 
 
 int colourFromRGB(int RGB[3]){
+  
   if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
   if (RGB[0] > 150 && RGB[1] > 150 && RGB[2] > 150) return COLOUR_WHITE;
   if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
@@ -310,6 +311,7 @@ int colourFromRGB(int RGB[3]){
     return c == COLOUR_GREEN ? COLOUR_GREEN : COLOUR_BLACK;
   }
   return COLOUR_UNKNOWN;
+  //return BT_read_colour_sensor(COLOUR_INPUT);
 }
 
 int getColourFromSensor(){
@@ -319,7 +321,7 @@ int getColourFromSensor(){
     RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
   }
   int colour = colourFromRGB(RGB);
-  printf("Reading %d %d %d as colour %d \n", RGB[0], RGB[1], RGB[2], colour);
+  //printf("Reading %d %d %d as colour %d \n", RGB[0], RGB[1], RGB[2], colour);
   return colour;
 }
 
@@ -599,7 +601,9 @@ int turn_at_intersection(int turn_direction)
   fflush(stdout);
 
   int expectedColour = COLOUR_BLACK;
-  int readings[] = {0, 0, 0, 0};
+  int seenWhite = 0;
+  int seenBlue = 0;
+  int seenGreen = 0;
   while (1){
     BT_all_stop(1);
     usleep(1000*150);
@@ -615,22 +619,20 @@ int turn_at_intersection(int turn_direction)
     //printf("Scanned colour %d, expected %d\n", newReading, expectedColour);
     //fflush(stdout);
     if (newReading == COLOUR_GREEN || newReading == COLOUR_BLUE || newReading == COLOUR_WHITE){
-      readings[newReading - 3] += 1;
+      if (newReading == COLOUR_GREEN) seenGreen+=1;
+      if (newReading == COLOUR_BLUE) seenBlue+=1;
+      if (newReading == COLOUR_WHITE) seenWhite+=1;
       expectedColour = newReading;
     }else if (newReading == COLOUR_BLACK && expectedColour != COLOUR_BLACK){
-      int c = -1;
       int i = -1;
-      for (int a = 0; a<4; a++){
-        if (readings[a] > c){
-          c = readings[a];
-          i = a;
-        }
-      }
+      if (seenGreen >= seenBlue && seenGreen >= seenWhite) i = COLOUR_GREEN;
+      if (seenBlue >= seenGreen && seenBlue >= seenWhite) i = COLOUR_BLUE;
+      if (seenWhite >= seenBlue && seenWhite >= seenGreen) i = COLOUR_WHITE;
 
-      printf("Finsihed turn with mid colour %d\n", i + 3);
+      printf("Finsihed turn with mid colour %d\n", i);
       fflush(stdout);
       //BT_all_stop(0);
-      return i + 3;
+      return i;
     }
 
     //lastReading = newReading;
@@ -789,6 +791,20 @@ void shiftBeliefs(int turn) {
   }
 }
 
+void printBeliefs(double b[][4]) {
+  for (int d = 0; d < 4; d++) {
+    printf("d: %d\n", d);
+    for (int y = 1; y <= sy; y++) {
+      for (int x = 1; x <= sx; x++) {
+        //printf(beliefs[getIndexFromCoord(x,y)][d] == 0 ? " x " : " o ");
+        printf(" %f ", b[getIndexFromCoord(x,y)][d]);
+      }
+      printf("\n");
+    }
+    printf("\n\n");
+  }
+}
+
 int intersect_agreement(int tl, int tr, int br, int bl, int x, int y, int d) { // 0 if yes, otherwise no
   /* d:
   0: UP
@@ -828,7 +844,12 @@ void pushOffIntersection(void){
 }
 
 int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction){
+    printf("At the start:\n");
+    printBeliefs(beliefs);
+
     shiftBeliefs(lastCommand);
+    printf("After shift:\n");
+    printBeliefs(beliefs);
 
     // Calculate current probabilities 
     double colourPosibilities[sx * sy][4];
@@ -852,17 +873,21 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
                 }
 
                 if (matches){
-                    int off_ind = off == 0 ? 3 : off - 1;
-                    colourPosibilities[index][off_ind] += 0.95;
+                    //int off_ind = off == 0 ? 3 : off - 1;
+                    colourPosibilities[index][off] += 0.95;
                     for (int extra_pos = 1; extra_pos < 4; extra_pos++){
-                        colourPosibilities[index][(off_ind + extra_pos)%4] += 0.05;
+                        colourPosibilities[index][(off + extra_pos)%4] += 0.05;
                     }
 
-                    printf("MATCH: %d %d %d\n", i, j, off_ind);
+                    printf("MATCH: %d %d %d\n", i, j, off);
                 }
             }
         }
     }
+
+
+    printf("Determe color probs:\n");
+    printBeliefs(colourPosibilities);
 
     // multiply probabilities
     for (int i = 0; i < sx; i++){
@@ -874,9 +899,14 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
         }
     }
 
+    printf("After multiplication:\n");
+    printBeliefs(beliefs);
+
     // Normalize the new beliefs
     double total = 0;
     for (int i = 0; i < sx * sy * 4; i++) total += colourPosibilities[i / 4][i % 4];
+
+    printf("totals: %f\n", total);
     for (int i = 0; i < sx; i++){
         for (int j = 0; j < sy; j++){
             int index = i + j*sx;
@@ -885,7 +915,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
 
                 // Check if any belief is above the threshold of certainty
                 if (beliefs[index][d] > THRESHOLD_OF_CERTAINTY){
-                    printf("FINAL MATCH: %d %d %d\n", i, j, off_ind);
+                    printf("FINAL MATCH: %d %d %d\n", i, j, d);
                     *(robot_x) = i;
                     *(robot_y) = j;
                     *(direction) = d;
@@ -895,22 +925,10 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
         }
     }
 
+    printf("Done?\n");
     return 0;
 }
 
-void printBeliefs() {
-  for (int d = 0; d < 4; d++) {
-    printf("d: %d\n", d);
-    for (int y = 1; y <= sy; y++) {
-      for (int x = 1; x <= sx; x++) {
-        //printf(beliefs[getIndexFromCoord(x,y)][d] == 0 ? " x " : " o ");
-        printf(" %f ", beliefs[getIndexFromCoord(x,y)][d]);
-      }
-      printf("\n");
-    }
-    printf("\n\n");
-  }
-}
 
 int robot_localization(int *robot_x, int *robot_y, int *direction)
 {
@@ -1002,13 +1020,13 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
       scan_intersection(&tl, &tr, &br, &bl);
       printf("Finished scanning with codes %d %d %d %d\n", tl, tr, br, bl);
       
-      int colours[] = {tr, br, bl, tl};
+      int colours[] = {bl, tl, tr, br};
       if (lastAction > -1){
         if (updateLocation(colours, lastAction, robot_x, robot_y, direction)){
             // We're done!
             return 1;
         }
-        printBeliefs();
+        printBeliefs(beliefs);
       }
 
       c = (c + 1)%2;
