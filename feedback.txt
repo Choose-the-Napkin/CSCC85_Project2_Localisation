@@ -1,0 +1,8 @@
+1) Yes
+2) Yes, we had to get really in depth
+3) Yes, although we didnt have too many motor related problems
+4) Yes
+5) Yes, too much
+6) Yes, with some of the newer algs like Kalman filter and particle filtering.
+This introduced us to these probabilistic filtering algs
+7) Were just happy our robot worked

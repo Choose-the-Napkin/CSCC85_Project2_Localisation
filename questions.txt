@@ -1,0 +1,55 @@
+Teammate 1: Faraz Malik, 1008009744
+Teammate 2: Noor Nasri, 
+
+Q1) The robot needs to keep track of m * n * 4 probabilities, as each intersection has
+4 possible directions that it could be facing. The direction matters because the direction determines how the probabilities shift
+
+Q2) They should all be evenly distributed, so in the general case 1/(m*n*4)
+
+Q3) For our touch sensors, we read them 3 times in a row. We return a positive
+(pushed) response only if 3 bluetooth reads in a row were positive, otherwise negative.
+This is because our actions (extend, retract) are binded to the pushed event.
+
+For color sensor, we handled noise differently for each usage. For example, when scanning an intersection,
+only color readings that showed up twice in a row are considered. Furthermore, of blue, green, and white,
+the mode is taken to determine the quarter's color.
+Furthermore, when pushing onto an intersection (for alignment post intersection scan),
+the color yellow must be read 3 times to know we are on it.
+
+For gyro, since it is not too critical in the way we use it and was consistent when testing,
+we do not handle noise
+
+Q4) The update function effectively defuses each probability into a hat-like shape in the
+direction the robot is facing (assuming no turn). That is, on both diagonals, forward, and double forward. The weights of everything except forward is 0.05, with forward being 0.85.
+The weights are multiplied by the probability that is being shifted then added to a buffer that later overwrites beliefs. To factor turns, the turn parameter shifts beliefs assuming a turn then a forwards movement
+It does this by adding it to the direction of the probability (mod 4) so the diffusion direction is correct, and 
+then adjusting the final direction that the probability gets written to to be different than the original direction (hence the turn).
+The buffer is copied, then finally everything is normalized in the beliefs array.
+
+Q5) The exploration strategy is to move forward 2, turn left, then repeat. This was chosen as
+The smallest boundary is 2 long, so we could continue localization in that specific case. When hitting a red boundary,
+we do a 180 degrees turn and then continue with the opposite direction, resetting localization. We choose the 2 forward one left strategy to severely
+reduce the chance of resetting localization for boundary twice in any given run. 
+
+Q6) The solution is on our shiftBelief function. When we realize that a belief is shifted out of bounds, we actually shift
+it to the same coordinate but facing the opposite direction ((direction+2)%4). This is to simulate the behavior to rotate 180 degrees and move to next
+intersection when hitting a boundary.
+
+Q7) This is explained in Q4. We bundled moving forwards, turning, and boundary case all in one function to simplify the localization process
+
+Q8) We check if any belief has a probability over our THRESHOLD_OF_CERTAINTY macro (set at 0.8). If there is,
+then obviously that belief takes the majority is very likely our position, and thus end our localization.
+
+Q9) Our robot was built around the idea of having a color sensor on a linear slide, with one position the center of rotation for the entire robot.
+This is because we could use very basic algorithm to perfectly align our robot to a road without a negative feedback loop. The wheels are very far apart
+to allow more precise turns. We have 2 touch sensors to detect when the moving sensor is at either of its endpoints, so the final places of the sensor are consistent.
+
+Q10) We did not find any parameters that affected localization, as the parameters given have to do with the final location.
+
+Q11) We found many factors affected the color reading on the sensor, especially since we processed the RGB as opposed to just getting the color code.
+The factors include ambient lighting and transparent tape (more increased the values) and wrinkles on the map itself (more decreased the values). Furthermore, the ball bearing getting caught on paper
+edges or creases sometimes messed up intersect scanning but ruining the robots center of rotation assumption.
+
+Q12) Around 2-3 with no resets.
+
+Q13) It does not. This is because it can mess up any given starting location as long as it aligns with the road at some point.
