@@ -120,6 +120,42 @@ double beliefs[400][4];     // Beliefs for each location and motion direction
 
 void handle_out_of_bounds();
 
+void playBeep(int mode){
+  int tone_data[50][3];
+  // Reset tone data information
+  for (int i=0;i<50; i++) 
+  {
+    tone_data[i][0]=-1;
+    tone_data[i][1]=-1;
+    tone_data[i][2]=-1;
+  }
+
+ tone_data[0][0]=50;
+ tone_data[0][1]=500;
+ tone_data[0][2]=1;
+
+ if (mode == COLOUR_BLUE) tone_data[0][0]=600;
+ else if (mode == COLOUR_GREEN) tone_data[0][0]=1150;
+ else if (mode == 100){ // Finished localization or pathing
+    tone_data[0][1]=250;
+
+    tone_data[1][0]=600;
+    tone_data[1][1]=250;
+    tone_data[1][2]=1;
+
+    tone_data[2][0]=1150;
+    tone_data[2][1]=250;
+    tone_data[2][2]=1;
+    
+    tone_data[3][0]=150;
+    tone_data[3][1]=500;
+    tone_data[3][2]=1;
+ }
+ 
+ BT_play_tone_sequence(tone_data);
+}
+
+
 int main(int argc, char *argv[])
 {
  char mapname[1024];
@@ -240,6 +276,11 @@ int main(int argc, char *argv[])
  int dir = -1;
  robot_localization(&x, &y, &dir);
  BT_all_stop(0);
+ playBeep(1000);
+
+ go_to_target(x, y, dir, dest_x, dest_y);
+ BT_all_stop(0);
+ playBeep(1000);
 
  // Cleanup and exit - DO NOT WRITE ANY CODE BELOW THIS LINE
  BT_close();
@@ -247,40 +288,6 @@ int main(int argc, char *argv[])
  exit(0);
 }
 
-void playBeep(int mode){
-  int tone_data[50][3];
-  // Reset tone data information
-  for (int i=0;i<50; i++) 
-  {
-    tone_data[i][0]=-1;
-    tone_data[i][1]=-1;
-    tone_data[i][2]=-1;
-  }
-
- tone_data[0][0]=50;
- tone_data[0][1]=500;
- tone_data[0][2]=1;
-
- if (mode == COLOUR_BLUE) tone_data[0][0]=600;
- else if (mode == COLOUR_GREEN) tone_data[0][0]=1150;
- else if (mode == 100){ // Finished localization or pathing
-    tone_data[0][1]=250;
-
-    tone_data[1][0]=600;
-    tone_data[1][1]=250;
-    tone_data[1][2]=1;
-
-    tone_data[2][0]=1150;
-    tone_data[2][1]=250;
-    tone_data[2][2]=1;
-    
-    tone_data[3][0]=150;
-    tone_data[3][1]=500;
-    tone_data[3][2]=1;
- }
- 
- BT_play_tone_sequence(tone_data);
-}
 
 /*
 int colourFromRGB(int RGB[3], int lastChosen){
@@ -399,11 +406,13 @@ int check_line_is_black(){
     
     int color_read = getColourFromSensor();
     int nowOnRoad = (color_read == COLOUR_BLACK || color_read == COLOUR_YELLOW);
-    if (!isOnRoad && nowOnRoad) return 0; // We shifted back onto the road, this is probably an intersection looking 45 degrees
-    nowOnRoad = isOnRoad;
+    //if (!isOnRoad && nowOnRoad) return 0; // We shifted back onto the road, this is probably an intersection looking 45 degrees
+    //nowOnRoad = isOnRoad;
+    if (!isOnRoad) return 0;
   }
+  return 1;
   
-  
+  /*
   // Stay retracted, move up if black offset case
   shift_color_sensor(0);
   while (1){
@@ -417,6 +426,7 @@ int check_line_is_black(){
     usleep(1000*75);
   }
   return 1;
+  */
 }
 
 int is_lined_up_on_black(void){
@@ -614,7 +624,7 @@ int drive_along_street(int lineUP)
   */   
 
   // Goes to nearest street and lines up
-  if (lineUP){
+  if (lineUP==1){
     find_street();
     align_robot(1 - isfirstStreet, 0, 0);
   }
@@ -649,6 +659,7 @@ int drive_along_street(int lineUP)
 
     // we went out of bounds, fix up then go back on road
     find_street(); 
+    align_robot(1, 0, 0);
     shift_color_sensor(0);
     BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
   }
@@ -939,7 +950,7 @@ int check_still_on_intersect(int last_turn_dir){
         // initialOrientationMode = 0 means we dont have one, -1/1 mean we're already on the right/left-most angle of the line
         // ignoreCentralization = 1 means dont bother centering the robot on the black line
 
-        align_robot(2, last_turn_dir == 0 ? 1 : -1, 0);
+        align_robot(2, last_turn_dir == 0 ? -1 : 1, 0);
         pushOffIntersection();
         return 1;
     }else{
@@ -1017,6 +1028,7 @@ int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, in
                     *(robot_x) = i;
                     *(robot_y) = j;
                     *(direction) = d;
+
                     return 1;
                 }
             } 
@@ -1148,6 +1160,25 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
  
 }
 
+void go_x_intersections(int nums){
+  int c = -1;
+  while (1){
+    c+= 1;
+    printf("INTERSECT #%d\n", c);
+    if (c == nums){
+      return;
+    }
+
+    align_robot(1, 0, 0); // Make sure we're properly lined up
+    // Push off yellow
+    pushOffIntersection();
+    int status;
+    status = drive_along_street(1);
+    printf("Finished street with code %d\n", status);
+    fflush(stdout);
+  }
+}
+
 int go_to_target(int robot_x, int robot_y, int direction, int target_x, int target_y)
 {
  /*
@@ -1170,6 +1201,38 @@ int go_to_target(int robot_x, int robot_y, int direction, int target_x, int targ
   /************************************************************************************************************************
    *   TO DO  -   Complete this function
    ***********************************************************************************************************************/
+  if (robot_x != target_x){
+    int wantedDir;
+    if (robot_x > target_x){
+      wantedDir = 3;
+    }else{
+      wantedDir = 1;
+    }
+
+    while (direction != wantedDir){
+      direction = (direction + 1) % 4;
+      turn_at_intersection(1);
+    }
+
+    go_x_intersections(fabs(robot_x - target_x));
+  }
+
+  if (robot_y != target_y){
+    int wantedDir;
+    if (robot_y > target_y){
+      wantedDir = 0;
+    }else{
+      wantedDir = 2;
+    }
+
+    while (direction != wantedDir){
+      direction = (direction + 1) % 4;
+      turn_at_intersection(1);
+    }
+
+    go_x_intersections(fabs(robot_y - target_y));
+  }
+  
   return(0);  
 }
 
