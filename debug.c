@@ -34,13 +34,13 @@ int read_touch_robust(int port) {
 
 #define mode 2 // Debug mode
 
-int COLOUR_BLACK = 0;
-int COLOUR_YELLOW = 1;
-int COLOUR_WHITE = 2;
-int COLOUR_GREEN = 3;
-int COLOUR_BLUE = 4;
-int COLOUR_RED = 5;
-int COLOUR_UNKNOWN = 6;
+#define COLOUR_BLACK 1
+#define COLOUR_BLUE 2
+#define COLOUR_GREEN 3
+#define COLOUR_YELLOW 4
+#define COLOUR_RED 5
+#define COLOUR_WHITE 6
+#define COLOUR_UNKNOWN 7
 
 char COLOUR_INPUT = PORT_1;
 char BACK_TOUCH_INPUT = PORT_3;
@@ -52,15 +52,21 @@ char SENSOR_WHEEL_OUTPUT = MOTOR_B;
 #define SENSOR_WHEEL_POWER 50
 #define whiteMax 305.0
 
+
 int colourFromRGB(int RGB[3]){
+  
   if (RGB[0] < 0 || RGB[0] > 1020 || RGB[1] < 0 || RGB[1] > 1020 || RGB[2] < 0 || RGB[2] > 1020) return COLOUR_UNKNOWN;
-  if (RGB[0] > 200 && RGB[1] > 200 && RGB[2] > 200) return COLOUR_WHITE;
+  if (RGB[0] > 150 && RGB[1] > 150 && RGB[2] > 150) return COLOUR_WHITE;
   if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
   if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
-  if (RGB[0] < 50 && RGB[1] > 50 && RGB[2] < 50) COLOUR_GREEN;
-  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50) return COLOUR_BLACK;
+  if (RGB[0] < 50 && RGB[1] > 40 && RGB[2] < 60) return COLOUR_GREEN;
   if (RGB[2] > 75) return COLOUR_BLUE;
+  if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50){
+    int c = BT_read_colour_sensor(COLOUR_INPUT);
+    return c == COLOUR_GREEN ? COLOUR_GREEN : COLOUR_BLACK;
+  }
   return COLOUR_UNKNOWN;
+  //return BT_read_colour_sensor(COLOUR_INPUT);
 }
 
 int getRGBFromSensor(){
@@ -101,6 +107,7 @@ int *shift_color_sensor(int shift_mode) {
   return samples;
 }
 
+#define whiteMax 305.0
 int main(int argc, char *argv[]) {
   char test_msg[8] = {0x06, 0x00, 0x2A, 0x00, 0x00, 0x00, 0x00, 0x01};
   char reply[1024];
@@ -143,15 +150,20 @@ int main(int argc, char *argv[]) {
       fflush(stdout);
     }
   } else if (mode == 2) {
-    // shift_color_sensor
-    int* samples;
-    samples = shift_color_sensor(1);
-    int i = 0;
-    while (samples[i] != -1) { // Print loop
-      printf("%d ", samples[i]);
-      i++;
+
+    while (1){ 
+      int RGB[3];
+      BT_read_colour_sensor_RGB(PORT_1, RGB);
+      for (int i = 0; i < 3; i++){
+        RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
+      }
+      
+      int equalTo = colourFromRGB(RGB);
+      printf("%d, %d, %d - which is colour code %d \n", RGB[0], RGB[1], RGB[2], equalTo);
+      //int angle = BT_read_gyro_sensor(PORT_2);
+      //printf("Angle is %d degrees\n", angle);
+      fflush(stdout);
     }
-    printf("\n");
 
 
   }
