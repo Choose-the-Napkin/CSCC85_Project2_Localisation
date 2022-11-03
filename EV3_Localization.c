@@ -89,6 +89,7 @@
 #include "EV3_Localization.h"
 #include <signal.h>
 #include <time.h>
+#include <stdio.h>
 
 #define COLOUR_INPUT PORT_1
 #define GYRO_INPUT PORT_2
@@ -111,6 +112,16 @@
 #define TURN_POWER 10
 #define whiteMax 305.0
 #define THRESHOLD_OF_CERTAINTY 0.8
+
+typedef struct {
+  int r;
+  int g;
+  int b;
+  int color;
+} colorReading;
+
+colorReading calibration_readings[30*6]; // 30 samples * 6 colors
+#define col_ptr(color) calibration_readings+(30*(color-1))
 
 int map[400][4];            // This holds the representation of the map, up to 20x20
                             // intersections, raster ordered, 4 building colours per
@@ -151,7 +162,9 @@ int main(int argc, char *argv[])
   * OPTIONAL TO DO: If you added code for sensor calibration, add just below this comment block any code needed to
   *   read your calibration data for use in your localization code. Skip this if you are not using calibration
   * ****************************************************************************************************************/
- 
+ FILE* f = fopen("./calibration", "r");
+ fread(calibration_readings, sizeof(colorReading), 30*6, f);
+ fclose(f);
  
  // Your code for reading any calibration information should not go below this line //
  
@@ -313,6 +326,21 @@ int colourFromRGB(int RGB[3], int lastChosen){
 
  */
 
+int colourFromRGB2(int buf[3]) {
+  int min_sqdiff = 100, min_color = 7, curr_sqdiff;
+  for (int i = 0; i < 30*6; i++) {
+    curr_sqdiff = pow(buf[0] - calibration_readings[i].r, 2);
+    curr_sqdiff += pow(buf[1] - calibration_readings[i].g, 2);
+    curr_sqdiff += pow(buf[2] - calibration_readings[i].b, 2);
+    
+    if (curr_sqdiff < min_sqdiff) {
+      min_sqdiff = curr_sqdiff;
+      min_color = calibration_readings[i].color;
+    }
+  }
+
+  return min_color;
+}
 
 int colourFromRGB(int RGB[3]){
   
@@ -330,12 +358,17 @@ int colourFromRGB(int RGB[3]){
   //return BT_read_colour_sensor(COLOUR_INPUT);
 }
 
+void normalized_color_read(int* buf) {
+  BT_read_colour_sensor_RGB(COLOUR_INPUT, buf);
+
+  for (int i = 0; i < 3; i++){
+    buf[i] = (int) ((double)buf[i] * 256.0 / whiteMax);
+  }
+}
+
 int getColourFromSensor(){
   int RGB[3];
-  BT_read_colour_sensor_RGB(COLOUR_INPUT, RGB);
-  for (int i = 0; i < 3; i++){
-    RGB[i] = (int) ((double)RGB[i] * 256.0 / whiteMax);
-  }
+  normalized_color_read(RGB); // populate RGB
   int colour = colourFromRGB(RGB);
   //printf("Reading %d %d %d as colour %d \n", RGB[0], RGB[1], RGB[2], colour);
   return colour;
@@ -1173,6 +1206,30 @@ int go_to_target(int robot_x, int robot_y, int direction, int target_x, int targ
   return(0);  
 }
 
+const char* color_from_int(int color) {
+  switch (color)
+  {
+    case 1:
+      return "black";
+    case 2:
+      return "blue";
+    case 3:
+      return "green";
+    case 4:
+      return "yellow";
+    case 5:
+      return "red";
+    case 6:
+      return "white";
+    case 7:
+      return "unknown";
+  }
+
+  return NULL;
+}
+
+#define MAX_COLOR_READING 500
+
 void calibrate_sensor(void)
 {
  /*
@@ -1195,6 +1252,39 @@ void calibrate_sensor(void)
    *   OIPTIONAL TO DO  -   Complete this function
    ***********************************************************************************************************************/
   fprintf(stderr,"Calibration function called!\n");  
+  BT_open(HEXKEY);
+  FILE* f = fopen("./calibration", "w");
+  colorReading c[10];
+  int val[3], n;
+  for (int i = 1; i < 7; i++) {
+    printf("Scanning color %s\n", color_from_int(i));
+    
+    for (int k = 0; k < 3; k++) { // for each spot
+      n = 0; // init
+
+      printf("Push button when ready\n");
+      while (!read_touch_robust(TOP_TOUCH_INPUT)){} // wait for push
+      while (n < 10){ // 10 samples per spot
+        normalized_color_read(val);
+        if (val[0] > MAX_COLOR_READING || val[1] > MAX_COLOR_READING || val[2] > MAX_COLOR_READING) { continue; }
+        
+        c[n].r = val[0];
+        c[n].g = val[1];
+        c[n].b = val[2];
+        c[n].color = i;
+        
+        n++; // update sums
+
+        printf("Values: %d %d %d\n", val[0], val[1], val[2]);
+        usleep(1000*100); // 100 ms
+      }
+
+      fwrite(c, sizeof(colorReading), 10, f); 
+    } // 30 per color
+  }
+
+  
+  fclose(f);
 }
 
 int parse_map(unsigned char *map_img, int rx, int ry)

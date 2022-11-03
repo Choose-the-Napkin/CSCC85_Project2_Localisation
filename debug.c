@@ -32,7 +32,7 @@ int read_touch_robust(int port) {
   return 1;
 }
 
-#define mode 2 // Debug mode
+#define mode 1 // Debug mode
 
 #define COLOUR_BLACK 1
 #define COLOUR_BLUE 2
@@ -59,7 +59,7 @@ int colourFromRGB(int RGB[3]){
   if (RGB[0] > 150 && RGB[1] > 150 && RGB[2] > 150) return COLOUR_WHITE;
   if (RGB[0] > 200 && RGB[1] < 100 && RGB[2] < 100) return COLOUR_RED;
   if (RGB[0] > 100 && RGB[1] > 100 && RGB[2] < 100) return COLOUR_YELLOW;
-  if (RGB[0] < 50 && RGB[1] > 40 && RGB[2] < 60) return COLOUR_GREEN;
+  if (RGB[0] < 50 && RGB[1] > 40 && RGB[2] < 50) return COLOUR_GREEN;
   if (RGB[2] > 75) return COLOUR_BLUE;
   if (RGB[0] < 50 && RGB[1] < 50 && RGB[2] < 50){
     int c = BT_read_colour_sensor(COLOUR_INPUT);
