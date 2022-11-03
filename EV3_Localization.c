@@ -263,6 +263,22 @@ void playBeep(int mode){
 
  if (mode == COLOUR_BLUE) tone_data[0][0]=600;
  else if (mode == COLOUR_GREEN) tone_data[0][0]=1150;
+ else if (mode == 100){ // Finished localization or pathing
+    tone_data[0][1]=250;
+
+    tone_data[1][0]=600;
+    tone_data[1][1]=250;
+    tone_data[1][2]=1;
+
+    tone_data[2][0]=1150;
+    tone_data[2][1]=250;
+    tone_data[2][2]=1;
+    
+    tone_data[3][0]=150;
+    tone_data[3][1]=500;
+    tone_data[3][2]=1;
+ }
+ 
  BT_play_tone_sequence(tone_data);
 }
 
@@ -342,8 +358,8 @@ void shift_color_sensor(int shift_mode) {
   BT_motor_port_start(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * power_direction);
   while (!read_touch_robust(touch_port)) {}
   BT_all_stop(0);
-  usleep(1000*100);
-  BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * -power_direction, 50);
+  //usleep(1000*100);
+  //BT_timed_motor_port_start_v2(SENSOR_WHEEL_OUTPUT, SENSOR_WHEEL_POWER * -power_direction, 50);
 }
 
 void shift_sensor_until_color(int color, int shift_mode) {
@@ -358,6 +374,14 @@ void shift_sensor_until_color(int color, int shift_mode) {
     BT_all_stop(0);
     usleep(1000*100);
   }
+}
+
+void slight_robot_turn(int amount){
+    BT_motor_port_start(LEFT_WHEEL_OUTPUT, amount);
+    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, -amount);
+    usleep(1000 * 125);
+    BT_all_stop(0);
+    usleep(1000 * 125);
 }
 
 int check_line_is_black(){
@@ -388,14 +412,14 @@ int check_line_is_black(){
     
     if (nowOnRoad) break;
     BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
-    usleep(1000*75);
-    BT_all_stop(0);
     usleep(1000*50);
+    BT_all_stop(0);
+    usleep(1000*75);
   }
   return 1;
 }
 
-int is_aligned(void){
+int is_lined_up_on_black(void){
   int seen = getColourFromSensor();
   if (seen != COLOUR_BLACK && seen != COLOUR_YELLOW){
     return 0;
@@ -407,53 +431,106 @@ int is_aligned(void){
 }
 
 int isfirstStreet = 1;
-void align_robot(int checkBothWays){
-  // Extends the color sensor and rotates until the extended sensor is on black
-  printf("Alligning robot\n");
-  fflush(stdout);
-  
-  // Shift sensor and see if already alligned
-  shift_color_sensor(1);
-  if (is_aligned()) {
-    isfirstStreet = 0;
-    return;
-  }
+int setup_black_lineup(int checkBothWays){
+    // Extends the color sensor and rotates until the extended sensor is on black
+    // Returns 0 if already on line, or -1/1 for the dir we used to reach the black
+    if (is_lined_up_on_black()) {
+        isfirstStreet = 0;
+        return 0;
+    }
 
-  int initialAngle = BT_read_gyro_sensor(GYRO_INPUT);
+    int initialAngle = BT_read_gyro_sensor(GYRO_INPUT);
 
-  // Rotate slowly until alligned; checkBothWays =1 means switch directions if d_angle > 30
-  int dir = 1;
-  while (1){
-    BT_motor_port_start(LEFT_WHEEL_OUTPUT, dir * TURN_POWER);
-    BT_motor_port_start(RIGHT_WHEEL_OUTPUT, dir * -TURN_POWER);
-    usleep(1000 * 125);
-    BT_all_stop(0);
-    if (is_aligned()){
-      usleep(1000 * 125);
-      isfirstStreet = 0;
-      // shift a little more so you're not just pointing to an edge
-      BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * dir);
-      BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER * dir * -1);
-      usleep(1000*500);
-      BT_all_stop(1);
-      return;
+    // Rotate slowly until alligned; checkBothWays=1 means switch directions if d_angle > 30
+    int dir = 1;
+    while (1){
+        slight_robot_turn(dir * TURN_POWER);
+        if (is_lined_up_on_black()){
+            usleep(1000 * 125);
+            isfirstStreet = 0;
+            
+            return dir;
+        }
+
+        if (checkBothWays && initialAngle != 1000){
+            int newAngle = BT_read_gyro_sensor(GYRO_INPUT);
+            if (abs(newAngle - initialAngle) > 30){
+                initialAngle = 1000;
+                dir *=-1;
+            }
+        }
+
+        usleep(1000 * 25);
+    }
+
+}
+
+int get_angle_for_black_in_dir(int dir){
+    printf("Getting angle for d %d\n", dir);
+    int cur_colour = getColourFromSensor();
+
+    // Keep shifting until off black
+    while (cur_colour == COLOUR_BLACK){
+        slight_robot_turn(dir * TURN_POWER); 
+        cur_colour = getColourFromSensor();
+    }
+
+    // retract a bit until back on black
+    while (cur_colour != COLOUR_BLACK){
+        slight_robot_turn(-dir * TURN_POWER);
+        cur_colour = getColourFromSensor();
+    }
+
+    // Return that angle
+    int ans = BT_read_gyro_sensor(GYRO_INPUT);
+    printf("Angle is %d\n", ans);
+    return ans;
+}
+
+void align_robot(int checkBothWays, int initialOrientationMode, int ignoreCentralization){
+    // (checkBothWays, initialOrientationMode, ignoreCentralization) lines up robot along black line
+    // checkBothWays = 0 means find the line by rotating one way, = 1 means try both, = 2 means we're already on black line
+    // initialOrientationMode = 0 means we dont have one, -1/1 mean we're already on the right/left-most angle of the line
+    // ignoreCentralization = 1 means dont bother centering the robot on the black line
+
+    printf("Alligning robot\n");
+    fflush(stdout);
+    shift_color_sensor(1);
+    
+    int curOrientation = 0;
+    if (checkBothWays < 2){
+       curOrientation = setup_black_lineup(checkBothWays);
+    }
+
+    if (ignoreCentralization) return; // We dont care about averaging the angle here (probably going to turn)
+
+
+    printf("Starting centralization\n");
+    shift_color_sensor(1);
+    int leftAngle = NULL; // Most counter-clockwise angle that retains this black line
+    int rightAngle = NULL; // Most clockwise angle that retains this black line
+    int curAngle = BT_read_gyro_sensor(GYRO_INPUT);
+
+    // Figure out if we are already on an edge so we dont need to calculate it
+    if (curOrientation == 1) leftAngle = curAngle;
+    else if (curOrientation == -1) rightAngle = curAngle;
+    else{
+        if (initialOrientationMode == 1) leftAngle = curAngle;
+        else if (initialOrientationMode == -1) rightAngle = curAngle;
     }
     
-    if (checkBothWays && initialAngle != 1000){
-      int newAngle = BT_read_gyro_sensor(GYRO_INPUT);
-      if (abs(newAngle - initialAngle) > 30){
-        initialAngle = 1000;
-        dir *=-1;
-      }
+    if (leftAngle == NULL) leftAngle = get_angle_for_black_in_dir(-1);
+    if (rightAngle == NULL) rightAngle = get_angle_for_black_in_dir(1);
+
+    curAngle = BT_read_gyro_sensor(GYRO_INPUT);
+    int wantedAngle =  (leftAngle + rightAngle)/2;
+
+    while (abs(curAngle - wantedAngle) > 1){
+        printf("Centralizing robot on black line, cur angle %d and wanted %d \n", curAngle, wantedAngle);
+        int turnDir = wantedAngle > curAngle ? 1 : -1;
+        slight_robot_turn(turnDir * TURN_POWER);
+        curAngle = BT_read_gyro_sensor(GYRO_INPUT);
     }
-
-    usleep(1000 * 25);
-  }
-
-  // Retract sensor before returning
-  //shift_color_sensor(0);
-  printf("Finished alligning robot\n");
-  fflush(stdout);
 }
 
 void handle_out_of_bounds() {
@@ -474,7 +551,7 @@ void handle_out_of_bounds() {
   printf("Out of bounds - stage 2\n");
   fflush(stdout);
   
-  // Move up until the extended is lined up with red and push a little so we're not on the edge
+  // Move up until the extended is lined up with red
   shift_color_sensor(1);
   while (getColourFromSensor() != COLOUR_RED){
     BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER/2);
@@ -486,14 +563,13 @@ void handle_out_of_bounds() {
   printf("Out of bounds - stage 2.5\n");
   fflush(stdout);
   BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER/3);
-  usleep(1000*50);
+  usleep(1000*20);
   BT_all_stop(0);
-  
   
   // Rotate until aligned with road
   printf("Out of bounds - stage 3\n");
   fflush(stdout);
-  align_robot(0);
+  align_robot(0, 0, 0);
 }
 
 
@@ -517,16 +593,13 @@ int find_street(void)
     while (getColourFromSensor() != COLOUR_BLACK && getColourFromSensor() != COLOUR_YELLOW){}
   }
   BT_all_stop(0);
-  
-  // Align robot then return
-  align_robot(1 - isfirstStreet);
 
   printf("Finished finding road\n");
   fflush(stdout);
   return(0);
 }
 
-int drive_along_street()
+int drive_along_street(int lineUP)
 {
  /*
   * This function drives your bot along a street, making sure it stays on the street without straying to other pars of
@@ -541,7 +614,11 @@ int drive_along_street()
   */   
 
   // Goes to nearest street and lines up
-  find_street();
+  if (lineUP){
+    find_street();
+    align_robot(1 - isfirstStreet, 0, 0);
+  }
+
   shift_color_sensor(0);
   printf("Driving on road\n");
   fflush(stdout);
@@ -594,7 +671,6 @@ int turn_at_intersection(int turn_direction)
   */
 
   // Allign robot then extend sensor and rotate until we're on black again and return intermediate colour
-  //find_street(); // allign up
   //shift_color_sensor(1);
 
   printf("Initiating Turn\n");
@@ -811,19 +887,69 @@ void intHandler(int dummy) {
 }
 
 void pushOffIntersection(void){
-  find_street();
+  //find_street();
   shift_color_sensor(0);
-  BT_motor_port_start(RIGHT_WHEEL_OUTPUT,  FORWARD_POWER);
-  BT_motor_port_start(LEFT_WHEEL_OUTPUT,   FORWARD_POWER);
-  usleep(1000*10); // in case we're a tad behind
   while (1){
+    BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
+    usleep(1000 * 100);
+    BT_all_stop(0);
+    usleep(1000 * 50);
+
     int pass = 0;
     for (int i=0; i<3; i++){
       if (!(getColourFromSensor() == COLOUR_YELLOW || getColourFromSensor() == COLOUR_UNKNOWN)) pass += 1;
     }
     if (pass==3)break;
+    
+
   }
   BT_all_stop(0);
+}
+
+void pushBackOntoIntersection(void){
+  //find_street();
+  shift_color_sensor(0);
+  while (1){
+    BT_drive(LEFT_WHEEL_OUTPUT, RIGHT_WHEEL_OUTPUT, FORWARD_POWER);
+    usleep(1000 * 100);
+    BT_all_stop(0);
+    usleep(1000 * 50);
+
+    int pass = 0;
+    for (int i=0; i<3; i++){
+      if (getColourFromSensor() == COLOUR_YELLOW ) pass += 1;
+    }
+    if (pass==3)break;
+    
+
+  }
+  BT_all_stop(0);
+}
+
+
+int check_still_on_intersect(int last_turn_dir){
+    // After we've scanned all 4 colours, make sure we're still on the yellow
+    // If we are, line up for the next one movement then push until off yellow
+    // If we are not, get back on yellow/black and reallign then push until off yellow
+    
+    shift_color_sensor(0);
+    if (getColourFromSensor() == COLOUR_YELLOW){
+        // (checkBothWays, initialOrientationMode, ignoreCentralization) lines up robot along black line
+        // checkBothWays = 0 means find the line by rotating one way, = 1 means try both, = 2 means we're already on black line
+        // initialOrientationMode = 0 means we dont have one, -1/1 mean we're already on the right/left-most angle of the line
+        // ignoreCentralization = 1 means dont bother centering the robot on the black line
+
+        align_robot(2, last_turn_dir == 0 ? 1 : -1, 0);
+        pushOffIntersection();
+        return 1;
+    }else{
+        // It got skewed, restart
+        printf("ROBOT SKEWED\n");
+        pushBackOntoIntersection();
+        align_robot(1, 0, 0);
+        pushOffIntersection();
+        return 1;
+    }
 }
 
 int updateLocation(int *colours, int lastCommand, int *robot_x, int *robot_y, int *direction, int isFirst){
@@ -959,14 +1085,24 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
   int lastAction = 0;
   signal(SIGINT, intHandler);
   
+  int alreadyAligned = 0;
+
   while (1){
     // Drives until next intersection
-    int status = drive_along_street();
+    int status;
+    if (alreadyAligned){
+      alreadyAligned = 0;
+      status = drive_along_street(0);
+    }else{
+      status = drive_along_street(1);
+
+    }
     printf("Finished street with code %d\n", status);
     fflush(stdout);
     
     if (status == 1){
-      find_street(); // Make sure we're properly lined up
+      align_robot(1, 0, 1); // Make sure we're properly lined up
+
       int tl, tr, br, bl;
       scan_intersection(&tl, &tr, &br, &bl);
       printf("Finished scanning with codes %d %d %d %d\n", tl, tr, br, bl);
@@ -983,19 +1119,16 @@ int robot_localization(int *robot_x, int *robot_y, int *direction)
 
       c = (c + 1)%2;
       if (c==0){
-        // Rotate for now
-        lastAction = 3;
+        // Rotate to keep scanning
         turn_at_intersection(-1);
-        BT_motor_port_start(LEFT_WHEEL_OUTPUT, TURN_POWER * -1);
-        BT_motor_port_start(RIGHT_WHEEL_OUTPUT, TURN_POWER);
-        usleep(1000*500);
-        BT_all_stop(1);
+        lastAction = 3;
       }else{
         lastAction = 0;
       }
     
-      // Line up and Get off intersection
-      pushOffIntersection();
+      // Line up and get off intersection
+      int result = check_still_on_intersect(c);
+      if (result==1) alreadyAligned=1;
       
     }else if (status == 2){
       handle_out_of_bounds();
