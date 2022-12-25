@@ -15,3 +15,7 @@ Program code for our localization robot. The robot was designed to have a colour
 - Compact(ish?) design (for the feature set)
 
 ## Video
+
+https://youtube.com/shorts/rVcYOCwwKto?si=EnSIkaIECMiOmarE
+
+This isn't the run we demoed for a grade, but a simple demonstration of the localistation process in action.
